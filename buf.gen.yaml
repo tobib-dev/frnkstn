@@ -1,0 +1,21 @@
+# buf.gen.yaml
+plugins:
+  # 1. Generate Go Types
+  - plugin: buf.build/protocolbuffers/go
+    out: api/gen
+    opt: paths=source_relative
+
+  # 2. Generate Go gRPC Server/Client
+  - plugin: buf.build/grpc/go
+    out: api/gen
+    opt: paths=source_relative
+
+  # 3. Generate TypeScript Types (Protobuf-ES)
+  - plugin: buf.build/bufbuild/es
+    out: tui/src/gen
+    opt: target=ts
+
+  # 4. Generate TypeScript gRPC Client (Connect-ES)
+  - plugin: buf.build/connectrpc/es
+    out: tui/src/gen
+    opt: target=ts

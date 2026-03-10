@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package users;
+
+option go_package = "github.com/tobib-dev/frnkstn/api/users/gen";
+
+service UserService {
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse) {}
+}
+
+message CreateUserRequest {
+  string name = 1;
+  string github_user = 2;
+  string token = 3;
+}
+
+message CreateUserResponse {
+  string name = 1;
+  string github_user = 2;
+  string created_at = 3;
+  string updated_at = 4;
+}
