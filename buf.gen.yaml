@@ -9,13 +9,3 @@ plugins:
   - plugin: buf.build/grpc/go
     out: api/gen
     opt: paths=source_relative
-
-  # 3. Generate TypeScript Types (Protobuf-ES)
-  - plugin: buf.build/bufbuild/es
-    out: tui/src/gen
-    opt: target=ts
-
-  # 4. Generate TypeScript gRPC Client (Connect-ES)
-  - plugin: buf.build/connectrpc/es
-    out: tui/src/gen
-    opt: target=ts
