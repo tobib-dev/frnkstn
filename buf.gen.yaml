@@ -1,11 +1,12 @@
 # buf.gen.yaml
+version: v1
 plugins:
   # 1. Generate Go Types
   - plugin: buf.build/protocolbuffers/go
-    out: api/gen
+    out: gen
     opt: paths=source_relative
 
   # 2. Generate Go gRPC Server/Client
   - plugin: buf.build/grpc/go
-    out: api/gen
+    out: gen
     opt: paths=source_relative
