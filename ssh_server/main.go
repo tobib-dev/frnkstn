@@ -9,7 +9,6 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-	"io/ioutil"
 
 	_ "embed"
 
@@ -37,7 +36,7 @@ func main() {
 		log.Fatal("Error loading environment variables")
 	}
 
-	bannerBytes, err := ioutil.ReadFile("banner.txt")
+	bannerBytes, err := os.ReadFile("banner.txt")
 	if err != nil {
 		log.Fatal("Error loading banner file:", err)
 	}

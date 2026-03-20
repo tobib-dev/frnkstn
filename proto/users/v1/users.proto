@@ -2,22 +2,21 @@ syntax = "proto3";
 
 package users.v1;
 
-option go_package = "github.com/tobib-dev/frnkstn/gen/v1";
+option go_package = "github.com/tobib-dev/frnkstn/gen/proto/users/v1";
 
 service UserService {
-  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse) {}
+  rpc CreateUser(Guest) returns (User) {}
 }
 
-message CreateUserRequest {
-  string user_id = 1;
-  string name = 2;
-  string github_user = 3;
+message Guest {
+  string name = 1;
+  string email = 2;
+  string git_username = 3;
 }
 
-message CreateUserResponse {
+message User {
   string user_id = 1;
   string name = 2;
-  string github_user = 3;
-  string created_at = 4;
-  string updated_at = 5;
+  string email = 3;
+  string git_username = 4;
 }

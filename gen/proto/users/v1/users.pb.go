@@ -21,29 +21,29 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type CreateUserRequest struct {
+type Guest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	GithubUser    string                 `protobuf:"bytes,3,opt,name=github_user,json=githubUser,proto3" json:"github_user,omitempty"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Email         string                 `protobuf:"bytes,2,opt,name=email,proto3" json:"email,omitempty"`
+	GitUsername   string                 `protobuf:"bytes,3,opt,name=git_username,json=gitUsername,proto3" json:"git_username,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *CreateUserRequest) Reset() {
-	*x = CreateUserRequest{}
+func (x *Guest) Reset() {
+	*x = Guest{}
 	mi := &file_proto_users_v1_users_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CreateUserRequest) String() string {
+func (x *Guest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CreateUserRequest) ProtoMessage() {}
+func (*Guest) ProtoMessage() {}
 
-func (x *CreateUserRequest) ProtoReflect() protoreflect.Message {
+func (x *Guest) ProtoReflect() protoreflect.Message {
 	mi := &file_proto_users_v1_users_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -55,57 +55,56 @@ func (x *CreateUserRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CreateUserRequest.ProtoReflect.Descriptor instead.
-func (*CreateUserRequest) Descriptor() ([]byte, []int) {
+// Deprecated: Use Guest.ProtoReflect.Descriptor instead.
+func (*Guest) Descriptor() ([]byte, []int) {
 	return file_proto_users_v1_users_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *CreateUserRequest) GetUserId() string {
-	if x != nil {
-		return x.UserId
-	}
-	return ""
-}
-
-func (x *CreateUserRequest) GetName() string {
+func (x *Guest) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-func (x *CreateUserRequest) GetGithubUser() string {
+func (x *Guest) GetEmail() string {
 	if x != nil {
-		return x.GithubUser
+		return x.Email
 	}
 	return ""
 }
 
-type CreateUserResponse struct {
+func (x *Guest) GetGitUsername() string {
+	if x != nil {
+		return x.GitUsername
+	}
+	return ""
+}
+
+type User struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	GithubUser    string                 `protobuf:"bytes,3,opt,name=github_user,json=githubUser,proto3" json:"github_user,omitempty"`
-	CreatedAt     string                 `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	UpdatedAt     string                 `protobuf:"bytes,5,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	Email         string                 `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
+	GitUsername   string                 `protobuf:"bytes,4,opt,name=git_username,json=gitUsername,proto3" json:"git_username,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *CreateUserResponse) Reset() {
-	*x = CreateUserResponse{}
+func (x *User) Reset() {
+	*x = User{}
 	mi := &file_proto_users_v1_users_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *CreateUserResponse) String() string {
+func (x *User) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*CreateUserResponse) ProtoMessage() {}
+func (*User) ProtoMessage() {}
 
-func (x *CreateUserResponse) ProtoReflect() protoreflect.Message {
+func (x *User) ProtoReflect() protoreflect.Message {
 	mi := &file_proto_users_v1_users_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -117,42 +116,35 @@ func (x *CreateUserResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use CreateUserResponse.ProtoReflect.Descriptor instead.
-func (*CreateUserResponse) Descriptor() ([]byte, []int) {
+// Deprecated: Use User.ProtoReflect.Descriptor instead.
+func (*User) Descriptor() ([]byte, []int) {
 	return file_proto_users_v1_users_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *CreateUserResponse) GetUserId() string {
+func (x *User) GetUserId() string {
 	if x != nil {
 		return x.UserId
 	}
 	return ""
 }
 
-func (x *CreateUserResponse) GetName() string {
+func (x *User) GetName() string {
 	if x != nil {
 		return x.Name
 	}
 	return ""
 }
 
-func (x *CreateUserResponse) GetGithubUser() string {
+func (x *User) GetEmail() string {
 	if x != nil {
-		return x.GithubUser
+		return x.Email
 	}
 	return ""
 }
 
-func (x *CreateUserResponse) GetCreatedAt() string {
+func (x *User) GetGitUsername() string {
 	if x != nil {
-		return x.CreatedAt
-	}
-	return ""
-}
-
-func (x *CreateUserResponse) GetUpdatedAt() string {
-	if x != nil {
-		return x.UpdatedAt
+		return x.GitUsername
 	}
 	return ""
 }
@@ -161,24 +153,19 @@ var File_proto_users_v1_users_proto protoreflect.FileDescriptor
 
 const file_proto_users_v1_users_proto_rawDesc = "" +
 	"\n" +
-	"\x1aproto/users/v1/users.proto\x12\busers.v1\"a\n" +
-	"\x11CreateUserRequest\x12\x17\n" +
+	"\x1aproto/users/v1/users.proto\x12\busers.v1\"T\n" +
+	"\x05Guest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05email\x18\x02 \x01(\tR\x05email\x12!\n" +
+	"\fgit_username\x18\x03 \x01(\tR\vgitUsername\"l\n" +
+	"\x04User\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
-	"\vgithub_user\x18\x03 \x01(\tR\n" +
-	"githubUser\"\xa0\x01\n" +
-	"\x12CreateUserResponse\x12\x17\n" +
-	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
-	"\vgithub_user\x18\x03 \x01(\tR\n" +
-	"githubUser\x12\x1d\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
+	"\x05email\x18\x03 \x01(\tR\x05email\x12!\n" +
+	"\fgit_username\x18\x04 \x01(\tR\vgitUsername2>\n" +
+	"\vUserService\x12/\n" +
 	"\n" +
-	"created_at\x18\x04 \x01(\tR\tcreatedAt\x12\x1d\n" +
-	"\n" +
-	"updated_at\x18\x05 \x01(\tR\tupdatedAt2X\n" +
-	"\vUserService\x12I\n" +
-	"\n" +
-	"CreateUser\x12\x1b.users.v1.CreateUserRequest\x1a\x1c.users.v1.CreateUserResponse\"\x00B%Z#github.com/tobib-dev/frnkstn/gen/v1b\x06proto3"
+	"CreateUser\x12\x0f.users.v1.Guest\x1a\x0e.users.v1.User\"\x00B1Z/github.com/tobib-dev/frnkstn/gen/proto/users/v1b\x06proto3"
 
 var (
 	file_proto_users_v1_users_proto_rawDescOnce sync.Once
@@ -194,12 +181,12 @@ func file_proto_users_v1_users_proto_rawDescGZIP() []byte {
 
 var file_proto_users_v1_users_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_proto_users_v1_users_proto_goTypes = []any{
-	(*CreateUserRequest)(nil),  // 0: users.v1.CreateUserRequest
-	(*CreateUserResponse)(nil), // 1: users.v1.CreateUserResponse
+	(*Guest)(nil), // 0: users.v1.Guest
+	(*User)(nil),  // 1: users.v1.User
 }
 var file_proto_users_v1_users_proto_depIdxs = []int32{
-	0, // 0: users.v1.UserService.CreateUser:input_type -> users.v1.CreateUserRequest
-	1, // 1: users.v1.UserService.CreateUser:output_type -> users.v1.CreateUserResponse
+	0, // 0: users.v1.UserService.CreateUser:input_type -> users.v1.Guest
+	1, // 1: users.v1.UserService.CreateUser:output_type -> users.v1.User
 	1, // [1:2] is the sub-list for method output_type
 	0, // [0:1] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name

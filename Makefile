@@ -1,2 +1,2 @@
 generate:
-	buf generate proto
+	buf generate .
