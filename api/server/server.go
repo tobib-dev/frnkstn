@@ -6,7 +6,7 @@ import (
 	"log"
 	"net"
 
-	pb "frnkstn/gen/proto/users/v1"
+	pb "frnkstn/api/proto/users/v1"
 
 	//"github.com/joho/godotenv"
 	"google.golang.org/grpc"

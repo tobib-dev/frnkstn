@@ -5,7 +5,7 @@ import (
 	"flag"
 	"log"
 
-	pb "frnkstn/gen/proto/users/v1"
+	pb "frnkstn/api/proto/users/v1"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"

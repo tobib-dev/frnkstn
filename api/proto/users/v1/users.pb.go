@@ -165,7 +165,7 @@ const file_proto_users_v1_users_proto_rawDesc = "" +
 	"\fgit_username\x18\x04 \x01(\tR\vgitUsername2>\n" +
 	"\vUserService\x12/\n" +
 	"\n" +
-	"CreateUser\x12\x0f.users.v1.Guest\x1a\x0e.users.v1.User\"\x00B1Z/github.com/tobib-dev/frnkstn/gen/proto/users/v1b\x06proto3"
+	"CreateUser\x12\x0f.users.v1.Guest\x1a\x0e.users.v1.User\"\x00B1Z/github.com/tobib-dev/frnkstn/api/proto/users/v1b\x06proto3"
 
 var (
 	file_proto_users_v1_users_proto_rawDescOnce sync.Once

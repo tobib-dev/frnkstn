@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package users.v1;
 
-option go_package = "github.com/tobib-dev/frnkstn/gen/proto/users/v1";
+option go_package = "github.com/tobib-dev/frnkstn/api/proto/users/v1";
 
 service UserService {
   rpc CreateUser(Guest) returns (User) {}
