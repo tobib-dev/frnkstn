@@ -49,9 +49,6 @@ func main() {
 		wish.WithBannerHandler(func(ctx ssh.Context) string {
 			return fmt.Sprintf(banner, ctx.User())
 		}),
-		wish.WithPasswordAuth(func(ctx ssh.Context, password string) bool {
-			return password == os.Getenv("TUI_PASSWORD")
-		}),
 		wish.WithMiddleware(
 			bubbletea.Middleware(teaHandler),
 			activeterm.Middleware(),
