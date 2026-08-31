@@ -14,7 +14,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"charm.land/lipgloss/v2"
 	"charm.land/log/v2"
 	"charm.land/wish/v2"
 	"charm.land/wish/v2/activeterm"
@@ -29,6 +28,15 @@ import (
 const host = "localhost"
 
 var banner string
+
+type sessionState int
+
+const (
+	listView sessionState = iota
+	formView
+	signInView
+	homeView
+)
 
 func main() {
 	err := godotenv.Load("../.env")
@@ -81,59 +89,68 @@ func main() {
 
 func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 	pty, _, _ := s.Pty()
-	m := model{
-		term:      pty.Term,
-		width:     pty.Window.Width,
-		height:    pty.Window.Height,
-		txtStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color("10")),
-		quitStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
-		bg:        "light",
+	m := mainModel{
+		state:  signInView,
+		width:  pty.Window.Width,
+		height: pty.Window.Height,
 	}
+	m.signIn = newSignInModel(m.width, m.height)
+	m.home = newHomeModel(m.width, m.height)
 	return m, []tea.ProgramOption{}
 }
 
-type model struct {
-	term      string
-	profile   string
-	width     int
-	height    int
-	bg        string
-	txtStyle  lipgloss.Style
-	quitStyle lipgloss.Style
+type mainModel struct {
+	state         sessionState
+	signIn        signInModel
+	home          homeModel
+	width, height int
 }
 
-func (m model) Init() tea.Cmd {
+func (m mainModel) Init() tea.Cmd {
 	return tea.Batch(
 		tea.RequestBackgroundColor,
 	)
 }
 
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.ColorProfileMsg:
-		m.profile = msg.String()
-	case tea.BackgroundColorMsg:
-		if msg.IsDark() {
-			m.bg = "dark"
-		} else {
-			m.bg = "light"
-		}
 	case tea.WindowSizeMsg:
-		m.height = msg.Height
 		m.width = msg.Width
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
-			return m, tea.Quit
+		m.height = msg.Height
+		m.signIn.list.SetSize(msg.Width, msg.Height)
+		m.home.list.SetSize(msg.Width, msg.Height)
+
+	case SwitchToHomeMsg:
+		m.state = homeView
+		return m, nil
+
+	case switchToSignInMsg:
+		m.state = signInView
+		if msg.authLink == "" {
+			return m, nil
 		}
 	}
-	return m, nil
+
+	var cmd tea.Cmd
+	switch m.state {
+	case signInView:
+		m.signIn, cmd = m.signIn.Update(msg)
+	case homeView:
+		m.home, cmd = m.home.Update(msg)
+	}
+	return m, cmd
 }
 
-func (m model) View() tea.View {
-	s := fmt.Sprintf("Term: %s\nWindow size: %dx%d\nBackground: %s\nProfile: %s",
-		m.term, m.width, m.height, m.bg, m.profile)
-	v := tea.NewView(m.txtStyle.Render(s) + "\n\n" + m.quitStyle.Render("Press 'q' to quit\n"))
-	v.AltScreen = true
-	return v
+func (m mainModel) View() tea.View {
+	var view tea.View
+	switch m.state {
+	case signInView:
+		view = m.signIn.View()
+	case homeView:
+		view = m.home.View()
+	default:
+		view = m.signIn.View()
+	}
+	view.AltScreen = true
+	return view
 }
