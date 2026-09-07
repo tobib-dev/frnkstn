@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,6 +20,8 @@ var authURL = "https://github.com/login/oauth/access_token"
 var grantType = "urn:ietf:params:oauth:grant-type:device_code"
 
 var clientID string
+
+const authRequestTimeout = 15 * time.Second
 
 type GHAuth struct {
 	ClientID string `json:"client_id"`
@@ -50,7 +53,7 @@ type PollResponse struct {
 	ErrorDescription string `json:"error_description"`
 }
 
-func authenticate() (PollResponse, error) {
+func authenticate() (GHResponse, error) {
 	err := godotenv.Load("../.env")
 	if err != nil {
 		log.Fatal(err)
@@ -61,13 +64,16 @@ func authenticate() (PollResponse, error) {
 	form.Set("client_id", clientID)
 	form.Set("scope", "read:user")
 
-	req, err := http.NewRequest(
+	ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(
+		ctx,
 		http.MethodPost,
 		loginURL,
 		strings.NewReader(form.Encode()),
 	)
 	if err != nil {
-		return PollResponse{}, err
+		return GHResponse{}, err
 	}
 
 	req.Header.Set("Accept", "application/json")
@@ -75,83 +81,85 @@ func authenticate() (PollResponse, error) {
 
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		log.Printf("Error sending auth request: %v", err)
-		return PollResponse{}, err
+		return GHResponse{}, fmt.Errorf("error sending auth request: %w", err)
 	}
 	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusOK {
-		log.Printf("Unexpected status code: %d", res.StatusCode)
 		body, _ := io.ReadAll(res.Body)
-		return PollResponse{}, fmt.Errorf("unexpected status code: %d: %s", res.StatusCode, body)
+		return GHResponse{}, fmt.Errorf("unexpected status code: %d: %s", res.StatusCode, body)
 	}
 
 	var ghRes GHResponse
 	if err = json.NewDecoder(res.Body).Decode(&ghRes); err != nil {
-		log.Printf("Error decoding auth response: %v", err)
-		return PollResponse{}, err
+		return GHResponse{}, fmt.Errorf("error decoding auth response: %w", err)
 	}
 
-	return pollForToken(
-		clientID,
-		ghRes.DeviceCode,
-		time.Duration(ghRes.Interval),
-		ghRes.ExpiresIn,
-	)
+	return ghRes, nil
 }
 
 func pollForToken(clientID string, deviceCode string, interval time.Duration, expiresIn int) (PollResponse, error) {
-	expiresAt := time.Now().Add(time.Duration(expiresIn))
+	expiresAt := time.Now().Add(time.Duration(expiresIn) * time.Second)
+	ctx, cancel := context.WithDeadline(context.Background(), expiresAt)
+	defer cancel()
 
 	for time.Now().Before(expiresAt) {
-		time.Sleep(interval)
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return PollResponse{}, fmt.Errorf("polling timed out")
+		case <-timer.C:
+		}
 
 		form := url.Values{}
 		form.Set("client_id", clientID)
 		form.Set("device_code", deviceCode)
 		form.Set("grant_type", grantType)
 
-		req, err := http.NewRequest(
+		requestCtx, cancelRequest := context.WithTimeout(ctx, authRequestTimeout)
+		req, err := http.NewRequestWithContext(
+			requestCtx,
 			http.MethodPost,
 			authURL,
 			strings.NewReader(form.Encode()),
 		)
 		if err != nil {
-			log.Printf("Error marshaling poll request: %v", err)
-			return PollResponse{}, err
+			cancelRequest()
+			return PollResponse{}, fmt.Errorf("error marshaling poll request: %w", err)
 		}
 
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		res, err := http.DefaultClient.Do(req)
 		if err != nil {
-			log.Printf("Error sending poll request: %v", err)
-			return PollResponse{}, err
+			cancelRequest()
+			return PollResponse{}, fmt.Errorf("error sending poll request: %w", err)
 		}
-		defer res.Body.Close()
-
 		var pollRes PollResponse
 		err = json.NewDecoder(res.Body).Decode(&pollRes)
-		if err != nil {
-			log.Printf("Error decoding poll response: %v", err)
-			return PollResponse{}, err
-		}
+		res.Body.Close()
+		cancelRequest()
 		if res.StatusCode != http.StatusOK {
-			log.Printf("Unexpected status code: %d", res.StatusCode)
-			return PollResponse{}, err
+			return PollResponse{}, fmt.Errorf("token request failed (HTTP %d): %s %s", res.StatusCode, pollRes.Error, pollRes.ErrorDescription)
 		}
+		if err != nil {
+			return PollResponse{}, fmt.Errorf("error decoding poll response: %w", err)
+		}
+		log.Printf("GitHub authorization response: HTTP %d, OAuth status %q", res.StatusCode, pollRes.Error)
 
 		switch pollRes.Error {
 		case "":
 			if pollRes.AccessToken != "" {
 				return pollRes, nil
 			}
+			return PollResponse{}, fmt.Errorf("token response contains neither an access token nor an OAuth status")
 
 		case "authorization_pending":
 			continue
 
 		case "slow_down":
-			interval += 5
+			interval += 5 * time.Second
 			continue
 
 		case "access_denied":
