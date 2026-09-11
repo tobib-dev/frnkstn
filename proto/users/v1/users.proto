@@ -5,18 +5,54 @@ package users.v1;
 option go_package = "github.com/tobib-dev/frnkstn/api/proto/users/v1";
 
 service UserService {
-  rpc CreateUser(Guest) returns (User) {}
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse) {}
+  rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse) {}
+  rpc GetUser(GetUserRequest) returns (GetUserResponse) {}
+  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse) {}
 }
 
-message Guest {
+message CreateUserRequest {
   string name = 1;
-  string email = 2;
-  string git_username = 3;
+  string username = 2;
 }
 
-message User {
+message CreateUserResponse {
+    string name = 1;
+    string username = 2;
+    string user_id = 3;
+}
+
+message UpdateUserRequest {
   string user_id = 1;
   string name = 2;
-  string email = 3;
-  string git_username = 4;
+  string username = 3;
+}
+
+message UpdateUserResponse {
+  string user_id = 1;
+  string name = 2;
+  string username = 3;
+}
+
+message GetUserRequest {
+  string user_id = 1;
+  string name = 2;
+  string username = 3;
+}
+
+message GetUserResponse {
+  string user_id = 1;
+  string name = 2;
+  string username = 3;
+}
+
+message DeleteUserRequest {
+  string user_id = 1;
+}
+
+message DeleteUserResponse {
+    string user_id = 1;
+    string name = 2;
+    string username = 3;
+    string deleted_at = 4;
 }
