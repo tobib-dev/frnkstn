@@ -146,7 +146,6 @@ func pollForToken(clientID string, deviceCode string, interval time.Duration, ex
 		if err != nil {
 			return PollResponse{}, fmt.Errorf("error decoding poll response: %w", err)
 		}
-		log.Printf("GitHub authorization response: HTTP %d, OAuth status %q", res.StatusCode, pollRes.Error)
 
 		switch pollRes.Error {
 		case "":

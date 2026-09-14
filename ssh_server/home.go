@@ -1,46 +1,48 @@
 package main
 
 import (
+	"time"
+
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
 
-type homeState int
-
-const (
-	directMessage homeState = iota
-	servers
-	signOut
-)
-
 type homeItem int
 
 const (
-	signInHomeItem homeItem = iota
+	messagesHomeItem homeItem = iota
+	groupsHomeItem
+	profileHomeItem
 	exitHomeItem
 )
 
 func (i homeItem) FilterValue() string {
-	if i == signInHomeItem {
-		return "Sign in"
+	switch i {
+	case messagesHomeItem:
+		return "Messages"
+	case groupsHomeItem:
+		return "Groups"
+	case profileHomeItem:
+		return "Profile"
+	default:
+		return "Exit"
 	}
-	return "Exit"
 }
 func (i homeItem) Title() string       { return i.FilterValue() }
 func (i homeItem) Description() string { return "" }
 
 type homeModel struct {
-	state homeState
-	list  list.Model
+	list list.Model
 }
 type SwitchToHomeMsg struct{}
 
 func newHomeModel(width, height int) homeModel {
 	delegate := list.NewDefaultDelegate()
 	delegate.ShowDescription = false
-	l := list.New([]list.Item{homeItem(signInHomeItem), homeItem(exitHomeItem)}, delegate, width, height)
+	l := list.New([]list.Item{messagesHomeItem, groupsHomeItem, profileHomeItem, exitHomeItem}, delegate, width, height)
 	l.Title = "Home"
+	l.StatusMessageLifetime = 4 * time.Second
 	return homeModel{list: l}
 }
 
@@ -51,10 +53,7 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 	}
 	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "enter" {
 		switch m.list.SelectedItem().(homeItem) {
-		case signInHomeItem:
-			return m, func() tea.Msg { return switchToSignInMsg{} }
 		case exitHomeItem:
-			m.state = signOut
 			return m, tea.Quit
 		}
 	}
