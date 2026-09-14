@@ -3,7 +3,7 @@ syntax = "proto3";
 
 package sessions.v1;
 
-option go_package = "github.com/tobib-dev/frnkstn/api/proto/users/v1";
+option go_package = "github.com/tobib-dev/frnkstn/api/proto/sessions/v1;sessionsv1";
 
 service SessionService {
     rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse) {}
