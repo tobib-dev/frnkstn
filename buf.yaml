@@ -1,5 +1,6 @@
-version: v1
-name: github.com/tobib-dev/frnkstn
+version: v2
+modules:
+  - path: proto
 
 lint:
   use:
