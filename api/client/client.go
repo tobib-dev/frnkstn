@@ -5,7 +5,7 @@ import (
 	"flag"
 	"log"
 
-	pb "frnkstn/api/proto/users/v1"
+	pb "github.com/tobib-dev/frnkstn/api/proto/users/v1"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
