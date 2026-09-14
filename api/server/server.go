@@ -3,42 +3,71 @@ package main
 import (
 	"fmt"
 	"log"
+	"log/slog"
 	"net"
+	"os"
+	"strconv"
 
-	pb "github.com/tobib-dev/frnkstn/api/proto/users/v1"
+	sessionsV1 "github.com/tobib-dev/frnkstn/api/proto/sessions/v1"
+	usersV1 "github.com/tobib-dev/frnkstn/api/proto/users/v1"
 
-	//"github.com/joho/godotenv"
+	"github.com/joho/godotenv"
 	"google.golang.org/grpc"
 )
 
 type Config struct {
-	Server      GRPCServerConfig
-	DB          DBConfig
-	UserService UserConfig
+	server         GRPCServerConfig
+	db             DBConfig
+	logger         *slog.Logger
+	userService    UserConfig
+	sessionService SessionConfig
 }
 
 type GRPCServerConfig struct {
-	Port int
+	port int
 }
 
 type DBConfig struct {
-	DBURL string
+	dbURL string
 }
 
 func main() {
 	fmt.Println("Testing the grpc server")
 
-	//port := os.Getenv("API_PORT")
-	port := "7789"
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%s", port))
+	godotenv.Load("../../.env")
+	logFile := os.Getenv("LOGFILE")
+	dbPort := os.Getenv("DB_PORT")
+	apiPortString := os.Getenv("API_PORT")
+	log.Printf("API port: %s\n", apiPortString)
+	apiPort, err := strconv.Atoi(apiPortString)
+	if err != nil {
+		log.Fatalf("failed to parse API Port: %v", err)
+	}
+
+	logger, err := initializeLogger(logFile)
+	if err != nil {
+		log.Fatalf("failed to initialize logger: %v", err)
+	}
+
+	cfg := Config{
+		server: GRPCServerConfig{
+			port: apiPort,
+		},
+		db: DBConfig{
+			dbURL: "127.0.0.1" + dbPort,
+		},
+		logger: logger,
+	}
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%v", cfg.server.port))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
 	defer lis.Close()
 
 	s := grpc.NewServer()
-	pb.RegisterUserServiceServer(s, &UserConfig{})
-	log.Printf("server listening at %v", lis.Addr())
+	usersV1.RegisterUserServiceServer(s, &UserConfig{})
+	sessionsV1.RegisterSessionServiceServer(s, &SessionConfig{})
+	logger.Info("frnkstn started", "port", cfg.server.port, "environment", "dev")
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}
