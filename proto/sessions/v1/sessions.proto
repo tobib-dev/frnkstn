@@ -7,20 +7,50 @@ option go_package = "github.com/tobib-dev/frnkstn/api/proto/users/v1";
 
 service SessionService {
     rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse) {}
+    rpc GetSession(GetSessionRequest) returns (GetSessionResponse) {}
+    rpc RefreshSession(RefreshSessionRequest) returns (RefreshSessionResponse) {}
 }
 
 message CreateSessionRequest {
     string access_token = 1;
-    string refresh_token = 2;
-    string expires_at = 3;
-    string revoked_at = 4;
-    string user_id = 5;
+    string access_token_expires_at = 2;
+    string refresh_token = 3;
+    string refresh_token_expires_at = 4;
 }
 
 message CreateSessionResponse {
     string session_id = 1;
     string refresh_token = 2;
     string expires_at = 3;
+    string user_id = 4;
+}
+
+message GetSessionRequest {
+    string access_token = 1;
+    string access_token_expires_at = 2;
+    string refresh_token = 3;
+    string refresh_token_expires_at = 4;
+}
+
+message GetSessionResponse {
+    string session_id = 1;
+    string refresh_token = 2;
+    string expires_at = 3;
+    string revoked_at = 4;
+    string user_id = 5;
+}
+
+message RefreshSessionRequest {
+    string access_token = 1;
+    string access_token_expires_at = 2;
+    string refresh_token = 3;
+    string refresh_token_expires_at = 4;
+}
+
+message RefreshSessionResponse {
+    string session_id = 1;
+    string refresh_token = 2;
+    string expires_at =3;
     string revoked_at = 4;
     string user_id = 5;
 }
