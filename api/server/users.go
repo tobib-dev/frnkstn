@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 
 	pb "github.com/tobib-dev/frnkstn/api/proto/users/v1"
 )
@@ -30,5 +31,7 @@ func (cfg *UserConfig) CreateUser(ctx context.Context, guest *pb.CreateUserReque
 		Username: user.Username,
 	}
 	users = append(users, su)
+
+	log.Printf("Successfully created user: %s\n", user.Username)
 	return user, nil
 }

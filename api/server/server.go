@@ -38,7 +38,7 @@ func main() {
 	logFile := os.Getenv("LOGFILE")
 	dbPort := os.Getenv("DB_PORT")
 	apiPortString := os.Getenv("API_PORT")
-	log.Printf("API port: %s\n", apiPortString)
+
 	apiPort, err := strconv.Atoi(apiPortString)
 	if err != nil {
 		log.Fatalf("failed to parse API Port: %v", err)

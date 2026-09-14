@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/google/uuid"
 	sessionsV1 "github.com/tobib-dev/frnkstn/api/proto/sessions/v1"
@@ -34,5 +35,7 @@ func (cfg *SessionConfig) CreateSession(ctx context.Context, sessionInfo *sessio
 		ExpiresAt:    sessionInfo.RefreshTokenExpiresAt,
 	}
 	sessions = append(sessions, ss)
+
+	log.Printf("Successfully created session: %s\n", sessionId.String())
 	return session, nil
 }
