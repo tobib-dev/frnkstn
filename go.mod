@@ -1,4 +1,4 @@
-module frnkstn
+module github.com/tobib-dev/frnkstn
 
 go 1.25.8
 
