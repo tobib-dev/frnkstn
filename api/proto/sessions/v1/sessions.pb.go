@@ -2,9 +2,9 @@
 // versions:
 // 	protoc-gen-go v1.36.12
 // 	protoc        (unknown)
-// source: proto/sessions/v1/sessions.proto
+// source: sessions/v1/sessions.proto
 
-package v1
+package sessionsv1
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -33,7 +33,7 @@ type CreateSessionRequest struct {
 
 func (x *CreateSessionRequest) Reset() {
 	*x = CreateSessionRequest{}
-	mi := &file_proto_sessions_v1_sessions_proto_msgTypes[0]
+	mi := &file_sessions_v1_sessions_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -45,7 +45,7 @@ func (x *CreateSessionRequest) String() string {
 func (*CreateSessionRequest) ProtoMessage() {}
 
 func (x *CreateSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_sessions_v1_sessions_proto_msgTypes[0]
+	mi := &file_sessions_v1_sessions_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -58,7 +58,7 @@ func (x *CreateSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateSessionRequest.ProtoReflect.Descriptor instead.
 func (*CreateSessionRequest) Descriptor() ([]byte, []int) {
-	return file_proto_sessions_v1_sessions_proto_rawDescGZIP(), []int{0}
+	return file_sessions_v1_sessions_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *CreateSessionRequest) GetAccessToken() string {
@@ -101,7 +101,7 @@ type CreateSessionResponse struct {
 
 func (x *CreateSessionResponse) Reset() {
 	*x = CreateSessionResponse{}
-	mi := &file_proto_sessions_v1_sessions_proto_msgTypes[1]
+	mi := &file_sessions_v1_sessions_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -113,7 +113,7 @@ func (x *CreateSessionResponse) String() string {
 func (*CreateSessionResponse) ProtoMessage() {}
 
 func (x *CreateSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_sessions_v1_sessions_proto_msgTypes[1]
+	mi := &file_sessions_v1_sessions_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -126,7 +126,7 @@ func (x *CreateSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateSessionResponse.ProtoReflect.Descriptor instead.
 func (*CreateSessionResponse) Descriptor() ([]byte, []int) {
-	return file_proto_sessions_v1_sessions_proto_rawDescGZIP(), []int{1}
+	return file_sessions_v1_sessions_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *CreateSessionResponse) GetSessionId() string {
@@ -169,7 +169,7 @@ type GetSessionRequest struct {
 
 func (x *GetSessionRequest) Reset() {
 	*x = GetSessionRequest{}
-	mi := &file_proto_sessions_v1_sessions_proto_msgTypes[2]
+	mi := &file_sessions_v1_sessions_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -181,7 +181,7 @@ func (x *GetSessionRequest) String() string {
 func (*GetSessionRequest) ProtoMessage() {}
 
 func (x *GetSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_sessions_v1_sessions_proto_msgTypes[2]
+	mi := &file_sessions_v1_sessions_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -194,7 +194,7 @@ func (x *GetSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSessionRequest.ProtoReflect.Descriptor instead.
 func (*GetSessionRequest) Descriptor() ([]byte, []int) {
-	return file_proto_sessions_v1_sessions_proto_rawDescGZIP(), []int{2}
+	return file_sessions_v1_sessions_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *GetSessionRequest) GetAccessToken() string {
@@ -238,7 +238,7 @@ type GetSessionResponse struct {
 
 func (x *GetSessionResponse) Reset() {
 	*x = GetSessionResponse{}
-	mi := &file_proto_sessions_v1_sessions_proto_msgTypes[3]
+	mi := &file_sessions_v1_sessions_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -250,7 +250,7 @@ func (x *GetSessionResponse) String() string {
 func (*GetSessionResponse) ProtoMessage() {}
 
 func (x *GetSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_sessions_v1_sessions_proto_msgTypes[3]
+	mi := &file_sessions_v1_sessions_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -263,7 +263,7 @@ func (x *GetSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSessionResponse.ProtoReflect.Descriptor instead.
 func (*GetSessionResponse) Descriptor() ([]byte, []int) {
-	return file_proto_sessions_v1_sessions_proto_rawDescGZIP(), []int{3}
+	return file_sessions_v1_sessions_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *GetSessionResponse) GetSessionId() string {
@@ -313,7 +313,7 @@ type RefreshSessionRequest struct {
 
 func (x *RefreshSessionRequest) Reset() {
 	*x = RefreshSessionRequest{}
-	mi := &file_proto_sessions_v1_sessions_proto_msgTypes[4]
+	mi := &file_sessions_v1_sessions_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -325,7 +325,7 @@ func (x *RefreshSessionRequest) String() string {
 func (*RefreshSessionRequest) ProtoMessage() {}
 
 func (x *RefreshSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_sessions_v1_sessions_proto_msgTypes[4]
+	mi := &file_sessions_v1_sessions_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -338,7 +338,7 @@ func (x *RefreshSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefreshSessionRequest.ProtoReflect.Descriptor instead.
 func (*RefreshSessionRequest) Descriptor() ([]byte, []int) {
-	return file_proto_sessions_v1_sessions_proto_rawDescGZIP(), []int{4}
+	return file_sessions_v1_sessions_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *RefreshSessionRequest) GetAccessToken() string {
@@ -382,7 +382,7 @@ type RefreshSessionResponse struct {
 
 func (x *RefreshSessionResponse) Reset() {
 	*x = RefreshSessionResponse{}
-	mi := &file_proto_sessions_v1_sessions_proto_msgTypes[5]
+	mi := &file_sessions_v1_sessions_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -394,7 +394,7 @@ func (x *RefreshSessionResponse) String() string {
 func (*RefreshSessionResponse) ProtoMessage() {}
 
 func (x *RefreshSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_sessions_v1_sessions_proto_msgTypes[5]
+	mi := &file_sessions_v1_sessions_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -407,7 +407,7 @@ func (x *RefreshSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RefreshSessionResponse.ProtoReflect.Descriptor instead.
 func (*RefreshSessionResponse) Descriptor() ([]byte, []int) {
-	return file_proto_sessions_v1_sessions_proto_rawDescGZIP(), []int{5}
+	return file_sessions_v1_sessions_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *RefreshSessionResponse) GetSessionId() string {
@@ -445,11 +445,11 @@ func (x *RefreshSessionResponse) GetUserId() string {
 	return ""
 }
 
-var File_proto_sessions_v1_sessions_proto protoreflect.FileDescriptor
+var File_sessions_v1_sessions_proto protoreflect.FileDescriptor
 
-const file_proto_sessions_v1_sessions_proto_rawDesc = "" +
+const file_sessions_v1_sessions_proto_rawDesc = "" +
 	"\n" +
-	" proto/sessions/v1/sessions.proto\x12\vsessions.v1\"\xce\x01\n" +
+	"\x1asessions/v1/sessions.proto\x12\vsessions.v1\"\xce\x01\n" +
 	"\x14CreateSessionRequest\x12!\n" +
 	"\faccess_token\x18\x01 \x01(\tR\vaccessToken\x125\n" +
 	"\x17access_token_expires_at\x18\x02 \x01(\tR\x14accessTokenExpiresAt\x12#\n" +
@@ -494,22 +494,22 @@ const file_proto_sessions_v1_sessions_proto_rawDesc = "" +
 	"\rCreateSession\x12!.sessions.v1.CreateSessionRequest\x1a\".sessions.v1.CreateSessionResponse\"\x00\x12O\n" +
 	"\n" +
 	"GetSession\x12\x1e.sessions.v1.GetSessionRequest\x1a\x1f.sessions.v1.GetSessionResponse\"\x00\x12[\n" +
-	"\x0eRefreshSession\x12\".sessions.v1.RefreshSessionRequest\x1a#.sessions.v1.RefreshSessionResponse\"\x00B4Z2github.com/tobib-dev/frnkstn/api/proto/sessions/v1b\x06proto3"
+	"\x0eRefreshSession\x12\".sessions.v1.RefreshSessionRequest\x1a#.sessions.v1.RefreshSessionResponse\"\x00B?Z=github.com/tobib-dev/frnkstn/api/proto/sessions/v1;sessionsv1b\x06proto3"
 
 var (
-	file_proto_sessions_v1_sessions_proto_rawDescOnce sync.Once
-	file_proto_sessions_v1_sessions_proto_rawDescData []byte
+	file_sessions_v1_sessions_proto_rawDescOnce sync.Once
+	file_sessions_v1_sessions_proto_rawDescData []byte
 )
 
-func file_proto_sessions_v1_sessions_proto_rawDescGZIP() []byte {
-	file_proto_sessions_v1_sessions_proto_rawDescOnce.Do(func() {
-		file_proto_sessions_v1_sessions_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_sessions_v1_sessions_proto_rawDesc), len(file_proto_sessions_v1_sessions_proto_rawDesc)))
+func file_sessions_v1_sessions_proto_rawDescGZIP() []byte {
+	file_sessions_v1_sessions_proto_rawDescOnce.Do(func() {
+		file_sessions_v1_sessions_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_sessions_v1_sessions_proto_rawDesc), len(file_sessions_v1_sessions_proto_rawDesc)))
 	})
-	return file_proto_sessions_v1_sessions_proto_rawDescData
+	return file_sessions_v1_sessions_proto_rawDescData
 }
 
-var file_proto_sessions_v1_sessions_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
-var file_proto_sessions_v1_sessions_proto_goTypes = []any{
+var file_sessions_v1_sessions_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_sessions_v1_sessions_proto_goTypes = []any{
 	(*CreateSessionRequest)(nil),   // 0: sessions.v1.CreateSessionRequest
 	(*CreateSessionResponse)(nil),  // 1: sessions.v1.CreateSessionResponse
 	(*GetSessionRequest)(nil),      // 2: sessions.v1.GetSessionRequest
@@ -517,7 +517,7 @@ var file_proto_sessions_v1_sessions_proto_goTypes = []any{
 	(*RefreshSessionRequest)(nil),  // 4: sessions.v1.RefreshSessionRequest
 	(*RefreshSessionResponse)(nil), // 5: sessions.v1.RefreshSessionResponse
 }
-var file_proto_sessions_v1_sessions_proto_depIdxs = []int32{
+var file_sessions_v1_sessions_proto_depIdxs = []int32{
 	0, // 0: sessions.v1.SessionService.CreateSession:input_type -> sessions.v1.CreateSessionRequest
 	2, // 1: sessions.v1.SessionService.GetSession:input_type -> sessions.v1.GetSessionRequest
 	4, // 2: sessions.v1.SessionService.RefreshSession:input_type -> sessions.v1.RefreshSessionRequest
@@ -531,26 +531,26 @@ var file_proto_sessions_v1_sessions_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for field type_name
 }
 
-func init() { file_proto_sessions_v1_sessions_proto_init() }
-func file_proto_sessions_v1_sessions_proto_init() {
-	if File_proto_sessions_v1_sessions_proto != nil {
+func init() { file_sessions_v1_sessions_proto_init() }
+func file_sessions_v1_sessions_proto_init() {
+	if File_sessions_v1_sessions_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_sessions_v1_sessions_proto_rawDesc), len(file_proto_sessions_v1_sessions_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sessions_v1_sessions_proto_rawDesc), len(file_sessions_v1_sessions_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_proto_sessions_v1_sessions_proto_goTypes,
-		DependencyIndexes: file_proto_sessions_v1_sessions_proto_depIdxs,
-		MessageInfos:      file_proto_sessions_v1_sessions_proto_msgTypes,
+		GoTypes:           file_sessions_v1_sessions_proto_goTypes,
+		DependencyIndexes: file_sessions_v1_sessions_proto_depIdxs,
+		MessageInfos:      file_sessions_v1_sessions_proto_msgTypes,
 	}.Build()
-	File_proto_sessions_v1_sessions_proto = out.File
-	file_proto_sessions_v1_sessions_proto_goTypes = nil
-	file_proto_sessions_v1_sessions_proto_depIdxs = nil
+	File_sessions_v1_sessions_proto = out.File
+	file_sessions_v1_sessions_proto_goTypes = nil
+	file_sessions_v1_sessions_proto_depIdxs = nil
 }
