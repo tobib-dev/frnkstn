@@ -8,12 +8,16 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/scylladb/gocqlx/v3"
 	sessionsV1 "github.com/tobib-dev/frnkstn/api/proto/sessions/v1"
 	usersV1 "github.com/tobib-dev/frnkstn/api/proto/users/v1"
 
+	"github.com/gocql/gocql"
 	"github.com/joho/godotenv"
 	"google.golang.org/grpc"
 )
+
+const keyspace = "frnkstn"
 
 type Config struct {
 	server         GRPCServerConfig
@@ -28,12 +32,11 @@ type GRPCServerConfig struct {
 }
 
 type DBConfig struct {
-	dbURL string
+	dbURL   string
+	session *gocqlx.Session
 }
 
 func main() {
-	fmt.Println("Testing the grpc server")
-
 	godotenv.Load("../../.env")
 	logFile := os.Getenv("LOGFILE")
 	dbPort := os.Getenv("DB_PORT")
@@ -49,15 +52,26 @@ func main() {
 		log.Fatalf("failed to initialize logger: %v", err)
 	}
 
+	dbUrl := "127.0.0.1" + dbPort
+	cluster := gocql.NewCluster(dbUrl)
+	cluster.Keyspace = keyspace
+	cluster.Consistency = gocql.Quorum
+	session, err := gocqlx.WrapSession(cluster.CreateSession())
+	if err != nil {
+		log.Fatalf("failed to start Scylla DB session: %v", err)
+	}
+
 	cfg := Config{
 		server: GRPCServerConfig{
 			port: apiPort,
 		},
 		db: DBConfig{
-			dbURL: "127.0.0.1" + dbPort,
+			dbURL:   dbUrl,
+			session: &session,
 		},
 		logger: logger,
 	}
+
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%v", cfg.server.port))
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
