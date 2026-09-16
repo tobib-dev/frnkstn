@@ -10,7 +10,7 @@ import (
 
 	sessionsV1 "github.com/tobib-dev/frnkstn-proto/sessions/v1"
 	usersV1 "github.com/tobib-dev/frnkstn-proto/users/v1"
-	"github.com/tobib-dev/frnkstn/api/server/db"
+	"github.com/tobib-dev/frnkstn/api/db"
 
 	"github.com/joho/godotenv"
 	"google.golang.org/grpc"

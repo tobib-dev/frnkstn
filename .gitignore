@@ -1,4 +1,5 @@
 .env
 ssh_server/.ssh/
 ssh_server/tui
-/api/server/api
+/api/api
+/api/frnkstn
