@@ -13,9 +13,11 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
 	github.com/scylladb/gocqlx/v3 v3.0.4
+	github.com/tobib-dev/frnkstn-proto v0.0.0-20260916200540-f93d084742a7
 	google.golang.org/grpc v1.79.3
-	google.golang.org/protobuf v1.36.11
 )
+
+require google.golang.org/protobuf v1.36.11 // indirect
 
 require (
 	github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be // indirect

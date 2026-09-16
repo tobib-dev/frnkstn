@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	pb "github.com/tobib-dev/frnkstn/api/proto/users/v1"
+	pb "github.com/tobib-dev/frnkstn-proto/users/v1"
 )
 
 // Sample user server
@@ -18,7 +18,7 @@ func (cfg *UserConfig) CreateUser(ctx context.Context, guest *pb.CreateUserReque
 	users := cfg.savedUsers
 	for _, us := range users {
 		if guest.Username == us.Username {
-			return &pb.CreateUserResponse{}, fmt.Errorf("Email: %s or git profile: %s already exists!!!", guest.Username)
+			return &pb.CreateUserResponse{}, fmt.Errorf("User - %s already exists!!!", guest.Username)
 		}
 	}
 

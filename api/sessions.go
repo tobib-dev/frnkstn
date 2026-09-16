@@ -6,7 +6,7 @@ import (
 	"log"
 
 	"github.com/google/uuid"
-	sessionsV1 "github.com/tobib-dev/frnkstn/api/proto/sessions/v1"
+	sessionsV1 "github.com/tobib-dev/frnkstn-proto/sessions/v1"
 )
 
 type SessionConfig struct {

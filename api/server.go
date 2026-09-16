@@ -8,8 +8,8 @@ import (
 	"os"
 	"strconv"
 
-	sessionsV1 "github.com/tobib-dev/frnkstn/api/proto/sessions/v1"
-	usersV1 "github.com/tobib-dev/frnkstn/api/proto/users/v1"
+	sessionsV1 "github.com/tobib-dev/frnkstn-proto/sessions/v1"
+	usersV1 "github.com/tobib-dev/frnkstn-proto/users/v1"
 	"github.com/tobib-dev/frnkstn/api/server/db"
 
 	"github.com/joho/godotenv"

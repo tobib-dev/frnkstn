@@ -6,8 +6,8 @@ import (
 	"log"
 	"time"
 
-	sessionsV1 "github.com/tobib-dev/frnkstn/api/proto/sessions/v1"
-	usersV1 "github.com/tobib-dev/frnkstn/api/proto/users/v1"
+	sessionsV1 "github.com/tobib-dev/frnkstn-proto/sessions/v1"
+	usersV1 "github.com/tobib-dev/frnkstn-proto/users/v1"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
