@@ -5,28 +5,34 @@ import (
 	"fmt"
 	"log"
 
-	pb "github.com/tobib-dev/frnkstn-proto/users/v1"
+	usersV1 "github.com/tobib-dev/frnkstn-proto/users/v1"
+	usersv1 "github.com/tobib-dev/frnkstn-proto/users/v1"
+	"github.com/tobib-dev/frnkstn/api/db"
 )
 
 // Sample user server
-type UserConfig struct {
-	pb.UnimplementedUserServiceServer
-	savedUsers []*pb.GetUserResponse
+type UserService struct {
+	db *db.DB
+	usersV1.UnimplementedUserServiceServer
 }
 
-func (cfg *UserConfig) CreateUser(ctx context.Context, guest *pb.CreateUserRequest) (*pb.CreateUserResponse, error) {
-	users := cfg.savedUsers
+func NewUserService(db *db.DB) *UserService {
+	return &UserService{db: db}
+}
+
+func (cfg *UserService) CreateUser(ctx context.Context, guest *usersV1.CreateUserRequest) (*usersV1.CreateUserResponse, error) {
+	var users []string
 	for _, us := range users {
 		if guest.Username == us.Username {
-			return &pb.CreateUserResponse{}, fmt.Errorf("User - %s already exists!!!", guest.Username)
+			return &usersV1.CreateUserResponse{}, fmt.Errorf("User - %s already exists!!!", guest.Username)
 		}
 	}
 
-	user := &pb.CreateUserResponse{
+	user := &usersV1.CreateUserResponse{
 		Name:     guest.Name,
 		Username: guest.Username,
 	}
-	su := &pb.GetUserResponse{
+	su := &usersV1.GetUserResponse{
 		Name:     user.Name,
 		Username: user.Username,
 	}
@@ -34,4 +40,17 @@ func (cfg *UserConfig) CreateUser(ctx context.Context, guest *pb.CreateUserReque
 
 	log.Printf("Successfully created user: %s\n", user.Username)
 	return user, nil
+}
+
+func (cfg *UserService) UpdateUser(ctx context.Context, req *usersV1.UpdateUserRequest) (*usersV1.UpdateUserResponse, error) {
+	//
+	return &usersV1.UpdateUserResponse{}, nil
+}
+
+func (cfg *UserService) GetUser(ctx context.Context, req *usersV1.GetUserRequest) (*usersV1.GetUserResponse, error) {
+	return &usersv1.GetUserResponse{}, nil
+}
+
+func (cfg *UserService) DeleteUser(ctx context.Context, req *usersV1.DeleteUserRequest) (*usersV1.DeleteUserResponse, error) {
+	return &usersv1.DeleteUserResponse{}, nil
 }

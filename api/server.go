@@ -17,11 +17,9 @@ import (
 )
 
 type Config struct {
-	server         GRPCServerConfig
-	db             DBConfig
-	logger         *slog.Logger
-	userService    UserConfig
-	sessionService SessionConfig
+	server GRPCServerConfig
+	db     DBConfig
+	logger *slog.Logger
 }
 
 type GRPCServerConfig struct {
@@ -44,29 +42,10 @@ func main() {
 		log.Fatalf("failed to parse API Port: %v", err)
 	}
 
-	logger, err := initializeLogger(logFile)
-	if err != nil {
-		log.Fatalf("failed to initialize logger: %v", err)
-	}
-
-	dbUrl := "127.0.0.1" + dbPort
-	db, err := db.New(dbUrl)
-	if err != nil {
-		log.Fatalf("failed to start Scylla DB session: %v", err)
-	}
-	defer db.Close()
-
 	cfg := Config{
 		server: GRPCServerConfig{
 			port: apiPort,
 		},
-		db: DBConfig{
-			dbURL:   dbUrl,
-			session: *db,
-		},
-		logger:         logger,
-		userService:    UserConfig{},
-		sessionService: SessionConfig{},
 	}
 
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%v", cfg.server.port))
@@ -75,11 +54,37 @@ func main() {
 	}
 	defer lis.Close()
 
-	s := grpc.NewServer()
-	usersV1.RegisterUserServiceServer(s, &cfg.userService)
-	sessionsV1.RegisterSessionServiceServer(s, &cfg.sessionService)
+	// Initialize logger
+	logger, err := initializeLogger(logFile)
+	if err != nil {
+		log.Fatalf("failed to initialize logger: %v", err)
+	}
+	cfg.logger = logger
+
+	// Start DB connection pool
+	dbUrl := "127.0.0.1" + dbPort
+	db, err := db.New(dbUrl)
+	if err != nil {
+		logger.Error("failed to start Scylla DB session: ", err)
+	}
+	defer db.Close()
+
+	cfg.db = DBConfig{
+		dbURL:   dbUrl,
+		session: *db,
+	}
+
+	server := grpc.NewServer()
+
+	// Inject DB into services and register services
+	userService := NewUserService(&cfg.db.session)
+	sessionService := NewSessionService(&cfg.db.session)
+
+	usersV1.RegisterUserServiceServer(server, userService)
+	sessionsV1.RegisterSessionServiceServer(server, sessionService)
+
 	logger.Info("frnkstn started", "port", cfg.server.port, "environment", "dev")
-	if err := s.Serve(lis); err != nil {
+	if err := server.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}
 }

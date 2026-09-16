@@ -7,15 +7,20 @@ import (
 
 	"github.com/google/uuid"
 	sessionsV1 "github.com/tobib-dev/frnkstn-proto/sessions/v1"
+	"github.com/tobib-dev/frnkstn/api/db"
 )
 
-type SessionConfig struct {
+type SessionService struct {
+	db *db.DB
 	sessionsV1.UnimplementedSessionServiceServer
-	sessions []*sessionsV1.GetSessionResponse
 }
 
-func (cfg *SessionConfig) CreateSession(ctx context.Context, sessionInfo *sessionsV1.CreateSessionRequest) (*sessionsV1.CreateSessionResponse, error) {
-	sessions := cfg.sessions
+func NewSessionService(db *db.DB) *SessionService {
+	return &SessionService{db: db}
+}
+
+func (cfg *SessionService) CreateSession(ctx context.Context, sessionInfo *sessionsV1.CreateSessionRequest) (*sessionsV1.CreateSessionResponse, error) {
+	var sessions []string
 	for _, ses := range sessions {
 		if sessionInfo.RefreshToken == ses.RefreshToken {
 			return &sessionsV1.CreateSessionResponse{}, fmt.Errorf("Session already exist!!!\n")
@@ -38,4 +43,8 @@ func (cfg *SessionConfig) CreateSession(ctx context.Context, sessionInfo *sessio
 
 	log.Printf("Successfully created session: %s\n", sessionId.String())
 	return session, nil
+}
+
+func (cfg *SessionService) GetSessions(ctx context.Context, req *sessionsV1.GetSessionRequest) (*sessionsV1.GetSessionResponse, error) {
+	return &sessionsV1.GetSessionResponse{}, nil
 }
