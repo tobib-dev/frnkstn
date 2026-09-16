@@ -8,16 +8,13 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/scylladb/gocqlx/v3"
 	sessionsV1 "github.com/tobib-dev/frnkstn/api/proto/sessions/v1"
 	usersV1 "github.com/tobib-dev/frnkstn/api/proto/users/v1"
+	"github.com/tobib-dev/frnkstn/api/server/db"
 
-	"github.com/gocql/gocql"
 	"github.com/joho/godotenv"
 	"google.golang.org/grpc"
 )
-
-const keyspace = "frnkstn"
 
 type Config struct {
 	server         GRPCServerConfig
@@ -33,7 +30,7 @@ type GRPCServerConfig struct {
 
 type DBConfig struct {
 	dbURL   string
-	session *gocqlx.Session
+	session db.DB
 }
 
 func main() {
@@ -53,13 +50,11 @@ func main() {
 	}
 
 	dbUrl := "127.0.0.1" + dbPort
-	cluster := gocql.NewCluster(dbUrl)
-	cluster.Keyspace = keyspace
-	cluster.Consistency = gocql.Quorum
-	session, err := gocqlx.WrapSession(cluster.CreateSession())
+	db, err := db.New(dbUrl)
 	if err != nil {
 		log.Fatalf("failed to start Scylla DB session: %v", err)
 	}
+	defer db.Close()
 
 	cfg := Config{
 		server: GRPCServerConfig{
@@ -67,9 +62,11 @@ func main() {
 		},
 		db: DBConfig{
 			dbURL:   dbUrl,
-			session: &session,
+			session: *db,
 		},
-		logger: logger,
+		logger:         logger,
+		userService:    UserConfig{},
+		sessionService: SessionConfig{},
 	}
 
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%v", cfg.server.port))
@@ -79,8 +76,8 @@ func main() {
 	defer lis.Close()
 
 	s := grpc.NewServer()
-	usersV1.RegisterUserServiceServer(s, &UserConfig{})
-	sessionsV1.RegisterSessionServiceServer(s, &SessionConfig{})
+	usersV1.RegisterUserServiceServer(s, &cfg.userService)
+	sessionsV1.RegisterSessionServiceServer(s, &cfg.sessionService)
 	logger.Info("frnkstn started", "port", cfg.server.port, "environment", "dev")
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
