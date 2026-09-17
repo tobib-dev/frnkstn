@@ -74,7 +74,7 @@ func main() {
 	if err := db.Migrate(
 		context.Background(),
 	); err != nil {
-		logger.Error("failed to migrate", "error", err)
+		log.Fatalf("failed to run migrations: %v", err)
 	}
 	cfg.db = DBConfig{
 		dbURL:   dbUrl,

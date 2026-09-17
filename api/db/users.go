@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/gocql/gocql"
+	"github.com/scylladb/gocqlx/v3/qb"
+	"github.com/scylladb/gocqlx/v3/table"
 )
 
 type User struct {
@@ -18,26 +20,110 @@ type UserStore interface {
 	CreateUser(context.Context, User) (User, error)
 }
 
-func (db *DB) GetUserByGitHubID(ctx context.Context, githubID int64) (User, error) {
-	user := User{GitHubID: githubID}
-	err := db.Session.Session.Query(
-		"SELECT user_id, name, username FROM users_by_github_id WHERE github_id = ?", githubID,
-	).WithContext(ctx).Scan(&user.ID, &user.Name, &user.Username)
-	return user, err
+var usersByGitHubIDMetadata = table.Metadata{
+	Name: "users_by_github_id",
+	Columns: []string{
+		"github_id",
+		"user_id",
+		"name",
+		"username",
+	},
+	PartKey: []string{"github_id"},
 }
 
-// CreateUser is idempotent by GitHub identity, including concurrent sign-ins.
-func (db *DB) CreateUser(ctx context.Context, user User) (User, error) {
-	user.ID = gocql.TimeUUID()
-	applied, err := db.Session.Session.Query(
-		"INSERT INTO users_by_github_id (github_id, user_id, name, username) VALUES (?, ?, ?, ?) IF NOT EXISTS",
-		user.GitHubID, user.ID, user.Name, user.Username,
-	).WithContext(ctx).MapScanCAS(map[string]interface{}{})
+var usersByGitHubIDTable = table.New(usersByGitHubIDMetadata)
+
+type UsersByGitHubID struct {
+	GitHubID int64 `db:"github_id"`
+	UserID   gocql.UUID
+	Name     string
+	Username string
+}
+
+func (db *DB) GetUserByGitHubID(ctx context.Context, githubID int64) (User, error) {
+	usr := UsersByGitHubID{
+		GitHubID: githubID,
+	}
+	err := db.Session.Query(usersByGitHubIDTable.Get()).WithContext(ctx).
+		BindStruct(usr).GetRelease(&usr)
 	if err != nil {
 		return User{}, err
 	}
-	if !applied {
-		return db.GetUserByGitHubID(ctx, user.GitHubID)
+	return User{
+		ID:       usr.UserID,
+		Name:     usr.Name,
+		Username: usr.Username,
+	}, nil
+}
+
+var usersMetadata = table.Metadata{
+	Name: "users",
+	Columns: []string{
+		"id",
+		"github_id",
+		"name",
+		"username",
+	},
+	PartKey: []string{"id"},
+}
+
+var usersTable = table.New(usersMetadata)
+
+var usersByUsernameMetadata = table.Metadata{
+	Name: "users_by_username",
+	Columns: []string{
+		"username",
+		"id",
+		"github_id",
+		"name",
+	},
+	PartKey: []string{"username"},
+}
+
+var usersByUsernameTable = table.New(usersByUsernameMetadata)
+
+// CreateUser is idempotent by GitHub identity, including concurrent sign-ins.
+func (db *DB) CreateUser(ctx context.Context, user User) (User, error) {
+	batch := db.Session.ContextBatch(ctx, gocql.LoggedBatch)
+
+	userInsert := qb.Insert(usersMetadata.Name).
+		Columns("id", "github_id", "name", "username").
+		Query(*db.Session)
+	if err := batch.BindMap(userInsert, qb.M{
+		"id":        user.ID,
+		"github_id": user.GitHubID,
+		"name":      user.Name,
+		"username":  user.Username,
+	}); err != nil {
+		return User{}, err
+	}
+
+	if user.GitHubID != 0 {
+		usersByGitHubIDInsert := qb.Insert(usersByGitHubIDMetadata.Name).
+			Columns("github_id", "user_id", "name", "username").
+			Query(*db.Session)
+		if err := batch.BindMap(usersByGitHubIDInsert, qb.M{
+			"github_id": user.GitHubID,
+			"user_id":   user.ID,
+			"name":      user.Name,
+			"username":  user.Username,
+		}); err != nil {
+			return User{}, err
+		}
+	}
+
+	if user.Username != "" {
+		usersByUsernameInsert := qb.Insert(usersByUsernameMetadata.Name).
+			Columns("username", "id", "github_id", "name").
+			Query(*db.Session)
+		if err := batch.BindMap(usersByUsernameInsert, qb.M{
+			"username":  user.Username,
+			"id":        user.ID,
+			"github_id": user.GitHubID,
+			"name":      user.Name,
+		}); err != nil {
+			return User{}, err
+		}
 	}
 	return user, nil
 }

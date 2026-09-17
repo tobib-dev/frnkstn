@@ -34,8 +34,10 @@ func (serv *UserService) CreateUser(ctx context.Context, guest *usersV1.CreateUs
 	}
 	user, err := serv.store.CreateUser(ctx, db.User{GitHubID: githubID, Name: guest.Name, Username: username})
 	if err != nil {
+		serv.cfg.logger.Error("failed to create user", "error", err)
 		return nil, status.Error(codes.Internal, "could not create user")
 	}
+	serv.cfg.logger.Info("user created", "user_id", user.ID.String(), "name", user.Name, "username", user.Username)
 	return &usersV1.CreateUserResponse{UserId: user.ID.String(), Name: user.Name, Username: user.Username}, nil
 }
 
@@ -54,10 +56,11 @@ func (serv *UserService) GetUserByGHID(ctx context.Context, req *usersV1.GetUser
 		return nil, status.Error(codes.InvalidArgument, "GitHub ID is required")
 	}
 	user, err := serv.store.GetUserByGitHubID(ctx, githubID)
-	if errors.Is(err, gocql.ErrNotFound) {
-		return nil, status.Error(codes.NotFound, "user not found")
-	}
 	if err != nil {
+		serv.cfg.logger.Error("error getting user by GitHub ID", "error", err)
+		if errors.Is(err, gocql.ErrNotFound) {
+			return nil, status.Error(codes.NotFound, "user not found")
+		}
 		return nil, status.Error(codes.Internal, "could not get user")
 	}
 	return &usersV1.GetUserByGHIDResponse{GithubUserId: req.GithubUserId, UserId: user.ID.String(), Name: user.Name, Username: user.Username}, nil
