@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"log/slog"
@@ -65,10 +66,16 @@ func main() {
 	dbUrl := "localhost:" + dbPort
 	db, err := db.New(dbUrl)
 	if err != nil {
-		logger.Error("failed to start Scylla DB session: ", err)
+		logger.Error("failed to start Scylla DB session", "error", err)
 	}
 	defer db.Close()
 
+	// Run database migrations
+	if err := db.Migrate(
+		context.Background(),
+	); err != nil {
+		logger.Error("failed to migrate", "error", err)
+	}
 	cfg.db = DBConfig{
 		dbURL:   dbUrl,
 		session: *db,

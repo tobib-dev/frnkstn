@@ -38,3 +38,29 @@ go test ./...
 
 Commit the updated `go.mod` and `go.sum`. Both client and server use the same
 pinned model version and remain separate executables in this app.
+
+### Sign-in and account lookup
+
+The SSH server uses the GitHub access token to fetch `/user`, then sends the
+numeric GitHub ID to the API's `GetUserByGHID`. Only `NotFound` opens the username
+prompt. `CreateUser` generates a local user ID, and `CreateSession` receives
+that ID after the account exists. User lookup and creation are internal RPCs
+that trust the GitHub identity supplied by the SSH server.
+
+Apply `api/db/migrations/001_users_by_github_id.cql` to the existing ScyllaDB
+keyspace before running this flow. Account creation uses `IF NOT EXISTS` on
+GitHub ID so retries keep the same local account. Existing accounts need a
+GitHub-ID mapping before they can be recognized by this lookup.
+
+The protobuf additions for this flow are currently in the sibling
+`frnkstn-proto` checkout. To develop against both modules, use a local workspace:
+
+```sh
+go work init . ../frnkstn-proto
+go test ./...
+```
+
+If `go.work` already exists, use `go work use . ../frnkstn-proto` instead.
+After publishing the protobuf changes, update the module version in `go.mod`
+and verify with `GOWORK=off go test ./...` before shipping. The local `go.work`
+and `go.work.sum` are ignored by Git.

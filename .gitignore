@@ -3,3 +3,7 @@ ssh_server/.ssh/
 ssh_server/tui
 /api/api
 /api/frnkstn
+
+# Local development against sibling modules.
+go.work
+go.work.sum
