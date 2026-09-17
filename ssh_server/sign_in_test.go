@@ -7,7 +7,7 @@ import (
 )
 
 func TestSignInDisplaysDeviceInstructionsWhilePolling(t *testing.T) {
-	m := newSignInModel(80, 24)
+	m := newSignInModel(80, 24, "test-client", "7789")
 	device := GHResponse{
 		DeviceCode:      "private-device-code",
 		UserCode:        "ABCD-EFGH",
@@ -33,7 +33,10 @@ func TestSignInDisplaysDeviceInstructionsWhilePolling(t *testing.T) {
 	if m.deviceAuth != (GHResponse{}) {
 		t.Error("failed sign-in retained device credentials")
 	}
-	if !strings.Contains(m.View().Content, "Sign in failed") {
+	if !strings.Contains(m.View().Content, "login failed") {
 		t.Error("view is missing the sign-in failure message")
+	}
+	if strings.Contains(m.View().Content, "access denied") {
+		t.Error("view exposes the login error")
 	}
 }

@@ -38,6 +38,11 @@ const (
 	homeView
 )
 
+type config struct {
+	grpcPort   string
+	ghClientID string
+}
+
 func main() {
 	err := godotenv.Load("../.env")
 	if err != nil {
@@ -51,6 +56,14 @@ func main() {
 	banner = string(bannerBytes)
 
 	port := os.Getenv("TUI_PORT")
+	grpcPort := os.Getenv("API_PORT")
+	clientID := os.Getenv("GITHUB_CLIENT_ID")
+
+	cfg := config{
+		grpcPort:   grpcPort,
+		ghClientID: clientID,
+	}
+
 	srv, err := wish.NewServer(
 		wish.WithAddress(net.JoinHostPort(host, port)),
 		wish.WithHostKeyPath(".ssh/id_ed25519"),
@@ -58,7 +71,9 @@ func main() {
 			return fmt.Sprintf(banner, ctx.User())
 		}),
 		wish.WithMiddleware(
-			bubbletea.Middleware(teaHandler),
+			bubbletea.Middleware(func(s ssh.Session) (tea.Model, []tea.ProgramOption) {
+				return teaHandler(s, cfg)
+			}),
 			activeterm.Middleware(),
 			logging.Middleware(),
 			//elapsed.Middleware(),
@@ -87,14 +102,16 @@ func main() {
 	}
 }
 
-func teaHandler(s ssh.Session) (tea.Model, []tea.ProgramOption) {
+func teaHandler(s ssh.Session, cfg config) (tea.Model, []tea.ProgramOption) {
 	pty, _, _ := s.Pty()
+
 	m := mainModel{
 		state:  signInView,
 		width:  pty.Window.Width,
 		height: pty.Window.Height,
+		cfg:    cfg,
 	}
-	m.signIn = newSignInModel(m.width, m.height)
+	m.signIn = newSignInModel(m.width, m.height, cfg.ghClientID, cfg.grpcPort)
 	m.home = newHomeModel(m.width, m.height)
 	return m, []tea.ProgramOption{}
 }
@@ -104,6 +121,7 @@ type mainModel struct {
 	signIn        signInModel
 	home          homeModel
 	width, height int
+	cfg           config
 }
 
 func (m mainModel) Init() tea.Cmd {

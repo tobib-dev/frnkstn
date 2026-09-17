@@ -1,12 +1,12 @@
 package main
 
 import (
-	"fmt"
 	"time"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"charm.land/log/v2"
 )
 
 type signInState int
@@ -18,7 +18,14 @@ const (
 	signInAuthenticating
 )
 
-type signInSuccessMsg struct{ token string }
+type tokenInfo struct {
+	AccessToken           string
+	ExpiresIn             int
+	RefreshToken          string
+	RefreshTokenExpiresIn int
+}
+
+type signInSuccessMsg struct{ token tokenInfo }
 type signInFailureMsg struct{ error error }
 type signInDeviceAuthMsg struct{ response GHResponse }
 type switchToSignInMsg struct{ authLink string }
@@ -42,20 +49,23 @@ func (i signInItem) Title() string       { return i.FilterValue() }
 func (i signInItem) Description() string { return "" }
 
 type signInModel struct {
+	clientID   string
 	deviceAuth GHResponse
 	state      signInState
 	list       list.Model
 	authLink   string
-	token      string
+	token      tokenInfo
+	grpcPort   string
+	session    sessionInfo
 	lastErr    error
 }
 
-func newSignInModel(width, height int) signInModel {
+func newSignInModel(width, height int, clientID, grpcPort string) signInModel {
 	delegate := list.NewDefaultDelegate()
 	delegate.ShowDescription = false
 	l := list.New(signInItems(), delegate, width, height)
 	l.Title = "Sign in"
-	return signInModel{state: signInWithGH, list: l}
+	return signInModel{state: signInWithGH, list: l, clientID: clientID, grpcPort: grpcPort}
 }
 
 func signInItems() []list.Item {
@@ -76,7 +86,7 @@ func (m signInModel) Update(msg tea.Msg) (signInModel, tea.Cmd) {
 		m.lastErr = nil
 		m.deviceAuth = GHResponse{}
 		return m, func() tea.Msg {
-			response, err := authenticate()
+			response, err := authenticate(m.clientID)
 			if err != nil {
 				return signInFailureMsg{error: err}
 			}
@@ -86,24 +96,46 @@ func (m signInModel) Update(msg tea.Msg) (signInModel, tea.Cmd) {
 		m.deviceAuth = msg.response
 		m.state = signInAuthenticating
 		return m, func() tea.Msg {
-			response, err := pollForToken(clientID, msg.response.DeviceCode,
+			response, err := pollForToken(m.clientID, msg.response.DeviceCode,
 				time.Duration(msg.response.Interval)*time.Second, msg.response.ExpiresIn)
 			if err != nil {
 				return signInFailureMsg{error: err}
 			}
-			return signInSuccessMsg{token: response.AccessToken}
+
+			tkn := tokenInfo{
+				AccessToken:           response.AccessToken,
+				ExpiresIn:             response.ExpiresIn,
+				RefreshToken:          response.RefreshToken,
+				RefreshTokenExpiresIn: response.RefreshExpiresIn,
+			}
+			return signInSuccessMsg{token: tkn}
 		}
 	case signInSuccessMsg:
 		m.deviceAuth = GHResponse{}
 		m.token = msg.token
 		m.state = signInWithGH
+
+		// get or create user session
+		var err error
+		m.session, err = getSession(m.token, m.grpcPort)
+		if err != nil {
+			// create user if user doesn't exist - request username
+			// if session timed out, create new session
+		}
+		// create session
+		m.session, err = createSession(m.token, m.grpcPort)
+		if err != nil {
+			return m, func() tea.Msg { return signInFailureMsg{error: err} }
+		}
 		return m, func() tea.Msg { return SwitchToHomeMsg{} }
 	case signInFailureMsg:
+		log.Error("failed login", "error", msg.error)
 		m.deviceAuth = GHResponse{}
 		m.state = signInFailed
-		m.list.Title = "Sign in failed"
+		m.list.Title = "login failed"
 		m.lastErr = msg.error
-		return m, m.list.NewStatusMessage(fmt.Sprintf("Sign in failed: %v", msg.error))
+
+		return m, m.list.NewStatusMessage("login failed")
 	}
 
 	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "enter" {

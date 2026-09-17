@@ -5,21 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
-
-	"github.com/joho/godotenv"
 )
 
 var loginURL = "https://github.com/login/device/code"
 var authURL = "https://github.com/login/oauth/access_token"
 var grantType = "urn:ietf:params:oauth:grant-type:device_code"
-
-var clientID string
 
 const authRequestTimeout = 15 * time.Second
 
@@ -53,13 +47,7 @@ type PollResponse struct {
 	ErrorDescription string `json:"error_description"`
 }
 
-func authenticate() (GHResponse, error) {
-	err := godotenv.Load("../.env")
-	if err != nil {
-		log.Fatal(err)
-	}
-	clientID = os.Getenv("GITHUB_CLIENT_ID")
-
+func authenticate(clientID string) (GHResponse, error) {
 	form := url.Values{}
 	form.Set("client_id", clientID)
 	form.Set("scope", "read:user")
