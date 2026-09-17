@@ -2,30 +2,41 @@ package main
 
 import (
 	"context"
-	//"fmt"
+	"errors"
+	"strconv"
+	"strings"
 
-	"github.com/google/uuid"
+	"github.com/gocql/gocql"
 	usersV1 "github.com/tobib-dev/frnkstn-proto/users/v1"
-	usersv1 "github.com/tobib-dev/frnkstn-proto/users/v1"
-	//"github.com/tobib-dev/frnkstn/api/db"
+	"github.com/tobib-dev/frnkstn/api/db"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
-// Sample user server
 type UserService struct {
-	cfg *Config
+	cfg   *Config
+	store db.UserStore
 	usersV1.UnimplementedUserServiceServer
 }
 
 func NewUserService(cfg *Config) *UserService {
-	return &UserService{cfg: cfg}
+	return &UserService{cfg: cfg, store: &cfg.db.session}
 }
 
 func (serv *UserService) CreateUser(ctx context.Context, guest *usersV1.CreateUserRequest) (*usersV1.CreateUserResponse, error) {
-	userId := uuid.New()
-	serv.cfg.logger.Info("creating user", "userID", userId.String(), "username", guest.Username, "service", "user")
-	return &usersv1.CreateUserResponse{
-		UserId: userId.String(),
-	}, nil
+	username := strings.TrimSpace(guest.Username)
+	if username == "" {
+		return nil, status.Error(codes.InvalidArgument, "username is required")
+	}
+	githubID, err := strconv.ParseInt(guest.GithubUserId, 10, 64)
+	if err != nil || githubID <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "GitHub ID is required")
+	}
+	user, err := serv.store.CreateUser(ctx, db.User{GitHubID: githubID, Name: guest.Name, Username: username})
+	if err != nil {
+		return nil, status.Error(codes.Internal, "could not create user")
+	}
+	return &usersV1.CreateUserResponse{UserId: user.ID.String(), Name: user.Name, Username: user.Username}, nil
 }
 
 func (serv *UserService) UpdateUser(ctx context.Context, req *usersV1.UpdateUserRequest) (*usersV1.UpdateUserResponse, error) {
@@ -34,9 +45,24 @@ func (serv *UserService) UpdateUser(ctx context.Context, req *usersV1.UpdateUser
 }
 
 func (serv *UserService) GetUser(ctx context.Context, req *usersV1.GetUserRequest) (*usersV1.GetUserResponse, error) {
-	return &usersv1.GetUserResponse{}, nil
+	return &usersV1.GetUserResponse{}, nil
+}
+
+func (serv *UserService) GetUserByGHID(ctx context.Context, req *usersV1.GetUserByGHIDRequest) (*usersV1.GetUserByGHIDResponse, error) {
+	githubID, err := strconv.ParseInt(req.GithubUserId, 10, 64)
+	if err != nil || githubID <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "GitHub ID is required")
+	}
+	user, err := serv.store.GetUserByGitHubID(ctx, githubID)
+	if errors.Is(err, gocql.ErrNotFound) {
+		return nil, status.Error(codes.NotFound, "user not found")
+	}
+	if err != nil {
+		return nil, status.Error(codes.Internal, "could not get user")
+	}
+	return &usersV1.GetUserByGHIDResponse{GithubUserId: req.GithubUserId, UserId: user.ID.String(), Name: user.Name, Username: user.Username}, nil
 }
 
 func (serv *UserService) DeleteUser(ctx context.Context, req *usersV1.DeleteUserRequest) (*usersV1.DeleteUserResponse, error) {
-	return &usersv1.DeleteUserResponse{}, nil
+	return &usersV1.DeleteUserResponse{}, nil
 }
