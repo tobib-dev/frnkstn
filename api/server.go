@@ -32,7 +32,7 @@ type DBConfig struct {
 }
 
 func main() {
-	godotenv.Load("../../.env")
+	godotenv.Load("../.env")
 	logFile := os.Getenv("LOGFILE")
 	dbPort := os.Getenv("DB_PORT")
 	apiPortString := os.Getenv("API_PORT")
@@ -62,7 +62,7 @@ func main() {
 	cfg.logger = logger
 
 	// Start DB connection pool
-	dbUrl := "127.0.0.1" + dbPort
+	dbUrl := "localhost:" + dbPort
 	db, err := db.New(dbUrl)
 	if err != nil {
 		logger.Error("failed to start Scylla DB session: ", err)
@@ -77,8 +77,8 @@ func main() {
 	server := grpc.NewServer()
 
 	// Inject DB into services and register services
-	userService := NewUserService(&cfg.db.session)
-	sessionService := NewSessionService(&cfg.db.session)
+	userService := NewUserService(&cfg)
+	sessionService := NewSessionService(&cfg)
 
 	usersV1.RegisterUserServiceServer(server, userService)
 	sessionsV1.RegisterSessionServiceServer(server, sessionService)
