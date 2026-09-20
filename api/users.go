@@ -25,6 +25,8 @@ func NewUserService(cfg *Config) *UserService {
 
 func (serv *UserService) CreateUser(ctx context.Context, guest *usersV1.CreateUserRequest) (*usersV1.CreateUserResponse, error) {
 	username := strings.TrimSpace(guest.Username)
+	userID := gocql.TimeUUID()
+
 	if username == "" {
 		return nil, status.Error(codes.InvalidArgument, "username is required")
 	}
@@ -32,7 +34,12 @@ func (serv *UserService) CreateUser(ctx context.Context, guest *usersV1.CreateUs
 	if err != nil || githubID <= 0 {
 		return nil, status.Error(codes.InvalidArgument, "GitHub ID is required")
 	}
-	user, err := serv.store.CreateUser(ctx, db.User{GitHubID: githubID, Name: guest.Name, Username: username})
+	user, err := serv.store.CreateUser(ctx, db.User{
+		ID:       userID,
+		GitHubID: githubID,
+		Name:     guest.Name,
+		Username: username,
+	})
 	if err != nil {
 		serv.cfg.logger.Error("failed to create user", "error", err)
 		return nil, status.Error(codes.Internal, "could not create user")
