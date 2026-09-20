@@ -16,7 +16,10 @@ type sessionInfo struct {
 	userID    string
 }
 
-func createSession(token tokenInfo, grpcPort string) (sessionInfo, error) {
+func createSession(token tokenInfo, userID, grpcPort string) (sessionInfo, error) {
+	if userID == "" {
+		return sessionInfo{}, fmt.Errorf("cannot create session without user ID")
+	}
 	grpcHost := "localhost:" + grpcPort
 	conn, err := grpc.NewClient(grpcHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -24,8 +27,11 @@ func createSession(token tokenInfo, grpcPort string) (sessionInfo, error) {
 	}
 	defer conn.Close()
 
+	ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
+	defer cancel()
 	client := sessionsV1.NewSessionServiceClient(conn)
-	resp, err := client.CreateSession(context.Background(), &sessionsV1.CreateSessionRequest{
+	resp, err := client.CreateSession(ctx, &sessionsV1.CreateSessionRequest{
+		UserId:                userID,
 		AccessToken:           token.AccessToken,
 		AccessTokenExpiresAt:  strconv.Itoa(token.ExpiresIn),
 		RefreshToken:          token.RefreshToken,
@@ -33,6 +39,9 @@ func createSession(token tokenInfo, grpcPort string) (sessionInfo, error) {
 	})
 	if err != nil {
 		return sessionInfo{}, fmt.Errorf("failed to create session: %w", err)
+	}
+	if resp.SessionId == "" || resp.UserId != userID {
+		return sessionInfo{}, fmt.Errorf("invalid session response")
 	}
 	sessInfo := sessionInfo{
 		sessionID: resp.SessionId,
@@ -50,15 +59,17 @@ func getSession(token tokenInfo, grpcPort string) (sessionInfo, error) {
 	}
 	defer conn.Close()
 
+	ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
+	defer cancel()
 	client := sessionsV1.NewSessionServiceClient(conn)
-	resp, err := client.GetSession(context.Background(), &sessionsV1.GetSessionRequest{
+	resp, err := client.GetSession(ctx, &sessionsV1.GetSessionRequest{
 		AccessToken:           token.AccessToken,
 		AccessTokenExpiresAt:  strconv.Itoa(token.ExpiresIn),
 		RefreshToken:          token.RefreshToken,
 		RefreshTokenExpiresAt: strconv.Itoa(token.RefreshTokenExpiresIn),
 	})
 	if err != nil {
-		return sessionInfo{}, fmt.Errorf("failed to create session: %w", err)
+		return sessionInfo{}, fmt.Errorf("failed to get session: %w", err)
 	}
 	sessInfo := sessionInfo{
 		sessionID: resp.SessionId,

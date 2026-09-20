@@ -8,28 +8,36 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	sessionsV1 "github.com/tobib-dev/frnkstn-proto/sessions/v1"
+	usersV1 "github.com/tobib-dev/frnkstn-proto/users/v1"
 	"google.golang.org/grpc"
 )
 
 type signInTestSessionServer struct {
 	sessionsV1.UnimplementedSessionServiceServer
+	usersV1.UnimplementedUserServiceServer
+}
+
+func (signInTestSessionServer) GetUserByGHID(context.Context, *usersV1.GetUserByGHIDRequest) (*usersV1.GetUserByGHIDResponse, error) {
+	return &usersV1.GetUserByGHIDResponse{UserId: "test-user", Username: "alice"}, nil
 }
 
 func (signInTestSessionServer) GetSession(context.Context, *sessionsV1.GetSessionRequest) (*sessionsV1.GetSessionResponse, error) {
-	return &sessionsV1.GetSessionResponse{SessionId: "test-session"}, nil
+	return &sessionsV1.GetSessionResponse{SessionId: "test-session", UserId: "test-user"}, nil
 }
 
 func (signInTestSessionServer) CreateSession(context.Context, *sessionsV1.CreateSessionRequest) (*sessionsV1.CreateSessionResponse, error) {
-	return &sessionsV1.CreateSessionResponse{SessionId: "test-session"}, nil
+	return &sessionsV1.CreateSessionResponse{SessionId: "test-session", UserId: "test-user"}, nil
 }
 
 func TestSuccessfulSignInOpensHome(t *testing.T) {
+	mockGitHubUser(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	server := grpc.NewServer()
 	sessionsV1.RegisterSessionServiceServer(server, signInTestSessionServer{})
+	usersV1.RegisterUserServiceServer(server, signInTestSessionServer{})
 	t.Cleanup(server.Stop)
 	go server.Serve(listener)
 	_, port, err := net.SplitHostPort(listener.Addr().String())
@@ -46,6 +54,8 @@ func TestSuccessfulSignInOpensHome(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected home navigation command")
 	}
+	updated, cmd = updated.Update(cmd())
+	updated, cmd = updated.Update(cmd())
 	updated, _ = updated.Update(cmd())
 	home := updated.(mainModel)
 	if home.state != homeView || home.signIn.token.AccessToken != "test-token" || home.signIn.session.sessionID != "test-session" {

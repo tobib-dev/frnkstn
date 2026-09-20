@@ -1,12 +1,16 @@
 package main
 
 import (
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"charm.land/log/v2"
+	github "github.com/tobib-dev/frnkstn/internal/github"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type signInState int
@@ -16,6 +20,9 @@ const (
 	signInFailed
 	quit
 	signInAuthenticating
+	signInLoadingSession
+	signInLoadingUser
+	signInUsername
 )
 
 type tokenInfo struct {
@@ -24,6 +31,11 @@ type tokenInfo struct {
 	RefreshToken          string
 	RefreshTokenExpiresIn int
 }
+
+type signInUserMsg struct{ user userInfo }
+type signInNewUserMsg struct{ identity github.User }
+
+type signInSessionMsg struct{ session sessionInfo }
 
 type signInSuccessMsg struct{ token tokenInfo }
 type signInFailureMsg struct{ error error }
@@ -58,6 +70,8 @@ type signInModel struct {
 	grpcPort   string
 	session    sessionInfo
 	lastErr    error
+	username   usernameModel
+	user       userInfo
 }
 
 func newSignInModel(width, height int, clientID, grpcPort string) signInModel {
@@ -113,21 +127,40 @@ func (m signInModel) Update(msg tea.Msg) (signInModel, tea.Cmd) {
 	case signInSuccessMsg:
 		m.deviceAuth = GHResponse{}
 		m.token = msg.token
-		m.state = signInWithGH
-
-		// get or create user session
-		var err error
-		m.session, err = getSession(m.token, m.grpcPort)
-		if err != nil {
-			// create user if user doesn't exist - request username
-			// if session timed out, create new session
+		m.state = signInLoadingUser
+		m.user = userInfo{}
+		m.session = sessionInfo{}
+		return m, func() tea.Msg {
+			identity, err := getGitHubUser(msg.token.AccessToken)
+			if err != nil {
+				return signInFailureMsg{error: err}
+			}
+			user, err := getUser(identity.ID, m.grpcPort)
+			if status.Code(err) == codes.NotFound {
+				return signInNewUserMsg{identity: identity}
+			}
+			if err != nil {
+				return signInFailureMsg{error: err}
+			}
+			return signInUserMsg{user: user}
 		}
-		// create session
-		m.session, err = createSession(m.token, m.grpcPort)
-		if err != nil {
-			return m, func() tea.Msg { return signInFailureMsg{error: err} }
+	case signInNewUserMsg:
+		m.state = signInUsername
+		m.username = newUsernameModel(m.grpcPort, msg.identity)
+		return m, m.username.input.Focus()
+	case signInUserMsg:
+		m.user = msg.user
+		return m.startSession()
+	case usernameCreatedMsg:
+		if m.state != signInUsername {
+			return m, nil
 		}
+		m.user = userInfo{userID: msg.userID, username: strings.TrimSpace(m.username.input.Value())}
+		return m.startSession()
+	case signInSessionMsg:
+		m.session = msg.session
 		return m, func() tea.Msg { return SwitchToHomeMsg{} }
+
 	case signInFailureMsg:
 		log.Error("failed login", "error", msg.error)
 		m.deviceAuth = GHResponse{}
@@ -136,6 +169,18 @@ func (m signInModel) Update(msg tea.Msg) (signInModel, tea.Cmd) {
 		m.lastErr = msg.error
 
 		return m, m.list.NewStatusMessage("login failed")
+	}
+
+	if m.state == signInUsername {
+		var cmd tea.Cmd
+		m.username, cmd = m.username.Update(msg)
+		return m, cmd
+	}
+	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "ctrl+c" {
+		return m, tea.Quit
+	}
+	if m.state == signInLoadingSession || m.state == signInLoadingUser {
+		return m, nil
 	}
 
 	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "enter" {
@@ -162,6 +207,12 @@ func authWithGitHub() string {
 	return "https://github.com/login/oauth/authorize?client_id=YOUR_CLIENT_ID"
 }
 func (m signInModel) View() tea.View {
+	if m.state == signInUsername {
+		return tea.NewView(lipgloss.NewStyle().Margin(2).Render(m.username.View()))
+	}
+	if m.state == signInLoadingSession || m.state == signInLoadingUser {
+		return tea.NewView(lipgloss.NewStyle().Margin(2).Render("Loading account…"))
+	}
 	if m.state == quit {
 		return tea.NewView(lipgloss.NewStyle().Margin(2).Render("Quit"))
 	}
@@ -176,4 +227,15 @@ func (m signInModel) View() tea.View {
 		return tea.NewView(lipgloss.NewStyle().Margin(2).Render("Signing in…"))
 	}
 	return tea.NewView(lipgloss.NewStyle().Margin(2).Render(m.list.View()))
+}
+
+func (m signInModel) startSession() (signInModel, tea.Cmd) {
+	m.state = signInLoadingSession
+	return m, func() tea.Msg {
+		session, err := createSession(m.token, m.user.userID, m.grpcPort)
+		if err != nil {
+			return signInFailureMsg{error: err}
+		}
+		return signInSessionMsg{session: session}
+	}
 }

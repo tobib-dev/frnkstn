@@ -140,8 +140,6 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case SwitchToHomeMsg:
 		m.state = homeView
-		// Verify tokens and provide switch view to create username if
-		// user is signing in for the first time
 		return m, m.home.list.NewStatusMessage("Sign in successful")
 
 	case switchToSignInMsg:
