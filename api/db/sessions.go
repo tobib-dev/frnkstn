@@ -12,7 +12,9 @@ import (
 
 type SessionStore interface {
 	CreateSession(context.Context, CreateSessionParams) (Session, error)
-	GetSession(context.Context, GetSessionParams) (SessionByRefreshToken, error)
+	GetSession(context.Context, GetSessionParams) (Session, error)
+	GetSessionByUser(context.Context, GetSessionByUserParams) (SessionByUser, error)
+	UpdateSession(context.Context, UpdateSessionParams) (Session, error)
 }
 
 var sessionMetadata = table.Metadata{
@@ -34,6 +36,7 @@ type Session struct {
 }
 
 type CreateSessionParams struct {
+	ID                    gocql.UUID
 	UserID                gocql.UUID
 	AccessToken           string
 	ExpiresIn             time.Time
@@ -44,7 +47,7 @@ type CreateSessionParams struct {
 func (db *DB) CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error) {
 	sess := Session{
 		UserID:                arg.UserID,
-		ID:                    gocql.UUIDFromTime(time.Now()),
+		ID:                    arg.ID,
 		AccessToken:           arg.AccessToken,
 		ExpiresIn:             arg.ExpiresIn,
 		RefreshToken:          arg.RefreshToken,
@@ -53,7 +56,7 @@ func (db *DB) CreateSession(ctx context.Context, arg CreateSessionParams) (Sessi
 	batch := db.Session.ContextBatch(ctx, gocql.LoggedBatch)
 
 	sessionInsert := qb.Insert(sessionMetadata.Name).
-		Columns("id", "access_token", "expires_in", "refresh_token", "refresh_token_expires_in", "user_id").
+		Columns("id", "access_token", "expires_in", "refresh_token", "refresh_token_expires_in", "user_id", "signed_out_at").
 		Query(*db.Session)
 	if err := batch.BindMap(sessionInsert, qb.M{
 		"id":                       sess.ID,
@@ -66,17 +69,16 @@ func (db *DB) CreateSession(ctx context.Context, arg CreateSessionParams) (Sessi
 		return Session{}, fmt.Errorf("bind session insert: %w", err)
 	}
 
-	if sess.RefreshToken != "" {
-		sessionByRefreshTokenInsert := qb.Insert(sessionByRefreshTokenMetadata.Name).
-			Columns("refresh_token", "session_id", "user_id", "expires_in", "access_token", "access_token_expires_in").
+	if sess.UserID.String() != "" {
+		sessionByUserInsert := qb.Insert(sessionByUserMetadata.Name).
+			Columns("user_id", "session_id", "refresh_token", "expires_in", "signed_out_at").
 			Query(*db.Session)
-		if err := batch.BindMap(sessionByRefreshTokenInsert, qb.M{
-			"refresh_token":           sess.RefreshToken,
-			"session_id":              sess.ID,
-			"user_id":                 sess.UserID,
-			"expires_in":              sess.RefreshTokenExpiresIn,
-			"access_token":            sess.AccessToken,
-			"access_token_expires_in": sess.ExpiresIn,
+		if err := batch.BindMap(sessionByUserInsert, qb.M{
+			"refresh_token": sess.RefreshToken,
+			"session_id":    sess.ID,
+			"user_id":       sess.UserID,
+			"expires_in":    sess.RefreshTokenExpiresIn,
+			"signed_out_at": sess.SignedOutAt,
 		}); err != nil {
 			return Session{}, fmt.Errorf("bind refresh-token session insert: %w", err)
 		}
@@ -89,37 +91,93 @@ func (db *DB) CreateSession(ctx context.Context, arg CreateSessionParams) (Sessi
 	return sess, nil
 }
 
-var sessionByRefreshTokenMetadata = table.Metadata{
-	Name:    "sessions_by_refresh_tokens",
-	Columns: []string{"refresh_token", "session_id", "user_id", "expires_in", "access_token", "access_token_expires_in", "signed_out_at"},
-	PartKey: []string{"refresh_token"},
+var sessionByUserMetadata = table.Metadata{
+	Name:    "sessions_by_user_id",
+	Columns: []string{"user_id", "session_id", "refresh_token", "expires_in", "signed_out_at"},
+	PartKey: []string{"user_id"},
 	SortKey: []string{"session_id"},
 }
 
-var sessionByRefreshTokenTable = table.New(sessionByRefreshTokenMetadata)
+var sessionByUserTable = table.New(sessionByUserMetadata)
 
-type SessionByRefreshToken struct {
-	RefreshToken         string
-	SessionID            gocql.UUID
-	UserID               gocql.UUID
-	ExpiresIn            time.Time
-	AccessToken          string
-	AccessTokenExpiresIn time.Time
-	SignedOutAt          time.Time
+type SessionByUser struct {
+	UserID       gocql.UUID
+	SessionID    gocql.UUID
+	RefreshToken string
+	ExpiresIn    time.Time
+	SignedOutAt  time.Time
 }
 
 type GetSessionParams struct {
-	RefreshToken string
+	ID gocql.UUID
 }
 
-func (db *DB) GetSession(ctx context.Context, params GetSessionParams) (SessionByRefreshToken, error) {
-	var sess SessionByRefreshToken
-	err := db.Session.Query(sessionByRefreshTokenTable.Get()).
+func (db *DB) GetSession(ctx context.Context, params GetSessionParams) (Session, error) {
+	var sess Session
+	err := db.Session.Query(sessionTable.Get()).
 		WithContext(ctx).
-		BindMap(qb.M{"refresh_token": params.RefreshToken}).
+		BindMap(qb.M{"id": params.ID}).
 		GetRelease(&sess)
 	if err != nil {
-		return SessionByRefreshToken{}, fmt.Errorf("get session: %w", err)
+		return Session{}, err
 	}
 	return sess, nil
+}
+
+type GetSessionByUserParams struct {
+	UserID gocql.UUID
+}
+
+func (db *DB) GetSessionByUser(ctx context.Context, params GetSessionByUserParams) (SessionByUser, error) {
+	var sess SessionByUser
+	err := db.Session.Query(sessionByUserTable.Get()).
+		WithContext(ctx).
+		BindMap(qb.M{"user_id": params.UserID}).
+		GetRelease(&sess)
+	if err != nil {
+		return SessionByUser{}, err
+	}
+	return sess, nil
+}
+
+type UpdateSessionParams struct {
+	ID          gocql.UUID
+	UserID      gocql.UUID
+	SignedOutAt time.Time
+}
+
+func (db *DB) UpdateSession(ctx context.Context, args UpdateSessionParams) (Session, error) {
+	batch := db.Session.ContextBatch(ctx, gocql.LoggedBatch)
+
+	query := qb.Update(sessionMetadata.Name).
+		Set("signed_out_at").
+		Where(qb.Eq("id")).
+		Query(*db.Session)
+	if err := batch.BindMap(query, qb.M{
+		"id":            args.ID,
+		"signed_out_at": args.SignedOutAt,
+	}); err != nil {
+		return Session{}, err
+	}
+
+	queryByID := qb.Update(sessionByUserMetadata.Name).
+		Set("signed_out_at").
+		Where(qb.Eq("user_id")).
+		Query(*db.Session)
+	if err := batch.BindMap(queryByID, qb.M{
+		"user_id":       args.UserID,
+		"signed_out_at": args.SignedOutAt,
+	}); err != nil {
+		return Session{}, err
+	}
+
+	if err := db.Session.ExecuteBatch(batch); err != nil {
+		return Session{}, err
+	}
+	session := Session{
+		ID:          args.ID,
+		UserID:      args.UserID,
+		SignedOutAt: args.SignedOutAt,
+	}
+	return session, nil
 }

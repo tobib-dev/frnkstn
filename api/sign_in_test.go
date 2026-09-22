@@ -41,8 +41,16 @@ func (s *testSessionStore) CreateSession(_ context.Context, params db.CreateSess
 	s.creates++
 	return db.Session{ID: gocql.TimeUUID(), UserID: params.UserID}, nil
 }
-func (s *testSessionStore) GetSession(context.Context, db.GetSessionParams) (db.SessionByRefreshToken, error) {
-	return db.SessionByRefreshToken{}, gocql.ErrNotFound
+func (s *testSessionStore) GetSession(context.Context, db.GetSessionParams) (db.Session, error) {
+	return db.Session{}, gocql.ErrNotFound
+}
+
+func (s *testSessionStore) GetSessionByUser(context.Context, db.GetSessionByUserParams) (db.SessionByUser, error) {
+	return db.SessionByUser{}, gocql.ErrNotFound
+}
+
+func (s *testSessionStore) UpdateSession(context.Context, db.UpdateSessionParams) (db.Session, error) {
+	return db.Session{}, gocql.ErrNotFound
 }
 
 func TestGetUserByGitHubID(t *testing.T) {
