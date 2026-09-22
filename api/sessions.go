@@ -49,6 +49,7 @@ func (serv *SessionService) CreateSession(ctx context.Context, sessionInfo *sess
 		RefreshToken: sessionInfo.RefreshToken, RefreshTokenExpiresIn: refreshExpiresAt,
 	})
 	if err != nil {
+		serv.cfg.logger.Info("failed to create session", "error", err)
 		return nil, status.Error(codes.Internal, "could not create session")
 	}
 
@@ -120,7 +121,7 @@ func (serv *SessionService) UpdateSession(ctx context.Context, req *sessionsV1.U
 		UserId:       sess.UserID.String(),
 		ExpiresAt:    sess.ExpiresIn.String(),
 		RefreshToken: sess.RefreshToken,
-		SignedOutAt:  sess.SignedOutAt.String(),
+		SignedOutAt:  sess.SignedOutAt.Format(time.RFC3339Nano),
 	}
 	serv.cfg.logger.Info("successfully updated session", "session_id", sess.ID.String())
 	return resp, nil

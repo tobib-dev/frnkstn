@@ -56,7 +56,7 @@ func (db *DB) CreateSession(ctx context.Context, arg CreateSessionParams) (Sessi
 	batch := db.Session.ContextBatch(ctx, gocql.LoggedBatch)
 
 	sessionInsert := qb.Insert(sessionMetadata.Name).
-		Columns("id", "access_token", "expires_in", "refresh_token", "refresh_token_expires_in", "user_id", "signed_out_at").
+		Columns("id", "access_token", "expires_in", "refresh_token", "refresh_token_expires_in", "user_id").
 		Query(*db.Session)
 	if err := batch.BindMap(sessionInsert, qb.M{
 		"id":                       sess.ID,
@@ -71,14 +71,13 @@ func (db *DB) CreateSession(ctx context.Context, arg CreateSessionParams) (Sessi
 
 	if sess.UserID.String() != "" {
 		sessionByUserInsert := qb.Insert(sessionByUserMetadata.Name).
-			Columns("user_id", "session_id", "refresh_token", "expires_in", "signed_out_at").
+			Columns("user_id", "session_id", "refresh_token", "expires_in").
 			Query(*db.Session)
 		if err := batch.BindMap(sessionByUserInsert, qb.M{
 			"refresh_token": sess.RefreshToken,
 			"session_id":    sess.ID,
 			"user_id":       sess.UserID,
 			"expires_in":    sess.RefreshTokenExpiresIn,
-			"signed_out_at": sess.SignedOutAt,
 		}); err != nil {
 			return Session{}, fmt.Errorf("bind refresh-token session insert: %w", err)
 		}

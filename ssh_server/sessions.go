@@ -86,6 +86,9 @@ func getSession(sessionID, grpcPort string) (sessionInfo, error) {
 }
 
 func updateSession(sessionID, userID, grpcPort string) (sessionInfo, error) {
+	if sessionID == "" || userID == "" {
+		return sessionInfo{}, fmt.Errorf("cannot sign out without session ID and user ID")
+	}
 	grpcHost := "localhost:" + grpcPort
 	conn, err := grpc.NewClient(grpcHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {

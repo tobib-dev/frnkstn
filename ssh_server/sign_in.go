@@ -147,7 +147,7 @@ func (m signInModel) Update(msg tea.Msg) (signInModel, tea.Cmd) {
 	case signInNewUserMsg:
 		m.state = signInUsername
 		m.username = newUsernameModel(m.grpcPort, msg.identity)
-		return m, m.username.input.Focus()
+		return m, m.username.nameInput.Focus()
 	case signInUserMsg:
 		m.user = msg.user
 		return m.startSession()
