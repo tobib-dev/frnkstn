@@ -22,11 +22,13 @@ type usernameTestServer struct {
 	sessionsV1.UnimplementedSessionServiceServer
 	calls    []string
 	username string
+	name     string
 }
 
 func (s *usernameTestServer) CreateUser(_ context.Context, req *usersV1.CreateUserRequest) (*usersV1.CreateUserResponse, error) {
 	s.calls = append(s.calls, "create user")
 	s.username = req.Username
+	s.name = req.Name
 	if req.GithubUserId != "123" {
 		return nil, status.Error(codes.Unauthenticated, "missing token")
 	}
@@ -70,8 +72,13 @@ func TestNewUserCreatesAccountBeforeHome(t *testing.T) {
 	if !reflect.DeepEqual(users.calls, []string{"get user"}) {
 		t.Fatalf("session created before account: %v", users.calls)
 	}
-	if m.state != signInUsername || !m.username.input.Focused() || !strings.Contains(m.View().Content, "enter username") {
+	if m.state != signInUsername || !m.username.nameInput.Focused() || !strings.Contains(m.View().Content, "enter username") {
 		t.Fatal("new user did not get a focused username prompt")
+	}
+	m.username.nameInput.SetValue("  Alice Example  ")
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if !m.username.input.Focused() || m.username.nameInput.Focused() {
+		t.Fatal("Enter did not move to username")
 	}
 	m.username.input.SetValue("  alice  ")
 	m, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -83,7 +90,7 @@ func TestNewUserCreatesAccountBeforeHome(t *testing.T) {
 		t.Fatal("submitted account twice")
 	}
 	m, cmd = m.Update(cmd())
-	if m.user.userID != "new-user" || users.username != "alice" {
+	if m.user.userID != "new-user" || users.username != "alice" || users.name != "Alice Example" || m.user.name != "Alice Example" {
 		t.Fatal("account creation did not retain user or submit trimmed username")
 	}
 	if cmd == nil {
@@ -101,6 +108,7 @@ func TestNewUserCreatesAccountBeforeHome(t *testing.T) {
 func TestUsernameValidationAndRetry(t *testing.T) {
 	m := newUsernameModel("7789", github.User{ID: 123})
 	m.input.Focus()
+	m.nameInput.SetValue("Alice Example")
 	m.input.SetValue("   ")
 	m, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd != nil || !strings.Contains(m.View(), "Username is required") {
@@ -109,10 +117,28 @@ func TestUsernameValidationAndRetry(t *testing.T) {
 	m.input.SetValue("alice")
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m, _ = m.Update(usernameFailedMsg{err: errors.New("private backend detail")})
-	if m.submitting || !m.input.Focused() || m.input.Value() != "alice" {
+	if m.submitting || !m.input.Focused() || m.input.Value() != "alice" || m.nameInput.Value() != "Alice Example" {
 		t.Fatal("failed submission cannot be edited and retried")
 	}
 	if !strings.Contains(m.View(), "Please try again") || strings.Contains(m.View(), "private backend detail") {
 		t.Fatal("unexpected error message")
+	}
+}
+
+func TestAccountNameRequiredAndFieldNavigation(t *testing.T) {
+	m := newUsernameModel("7789", github.User{ID: 123, Name: "GitHub Name"})
+	m.nameInput.Focus()
+	m.nameInput.SetValue("  ")
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.submitting || !strings.Contains(m.View(), "Name is required") || !m.nameInput.Focused() {
+		t.Fatal("blank name was accepted")
+	}
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	if !m.input.Focused() || m.nameInput.Focused() {
+		t.Fatal("Tab did not focus username")
+	}
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	if !m.nameInput.Focused() || m.input.Focused() {
+		t.Fatal("Shift+Tab did not focus name")
 	}
 }

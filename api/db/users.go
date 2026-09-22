@@ -114,13 +114,11 @@ func (db *DB) CreateUser(ctx context.Context, user User) (User, error) {
 
 	if user.Username != "" {
 		usersByUsernameInsert := qb.Insert(usersByUsernameMetadata.Name).
-			Columns("username", "id", "github_id", "name").
+			Columns("username", "user_id").
 			Query(*db.Session)
 		if err := batch.BindMap(usersByUsernameInsert, qb.M{
-			"username":  user.Username,
-			"user_id":   user.ID,
-			"github_id": user.GitHubID,
-			"name":      user.Name,
+			"username": user.Username,
+			"user_id":  user.ID,
 		}); err != nil {
 			return User{}, err
 		}

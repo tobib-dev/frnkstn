@@ -39,7 +39,7 @@ func getUser(githubID int64, grpcPort string) (userInfo, error) {
 	return userInfo{userID: response.UserId, name: response.Name, username: response.Username}, nil
 }
 
-func createUser(username string, identity github.User, grpcPort string) (string, error) {
+func createUser(name, username string, identity github.User, grpcPort string) (string, error) {
 	log.Info("creating user", "github_user_id", identity)
 	conn, err := grpc.NewClient("localhost:"+grpcPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -48,7 +48,7 @@ func createUser(username string, identity github.User, grpcPort string) (string,
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
 	defer cancel()
-	response, err := usersV1.NewUserServiceClient(conn).CreateUser(ctx, &usersV1.CreateUserRequest{Username: username, Name: identity.Name, GithubUserId: strconv.FormatInt(identity.ID, 10)})
+	response, err := usersV1.NewUserServiceClient(conn).CreateUser(ctx, &usersV1.CreateUserRequest{Username: username, Name: name, GithubUserId: strconv.FormatInt(identity.ID, 10)})
 	if err != nil {
 		return "", err
 	}

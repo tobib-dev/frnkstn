@@ -13,6 +13,7 @@ type usernameFailedMsg struct{ err error }
 
 type usernameModel struct {
 	input      textinput.Model
+	nameInput  textinput.Model
 	grpcPort   string
 	identity   github.User
 	submitting bool
@@ -23,7 +24,10 @@ func newUsernameModel(grpcPort string, identity github.User) usernameModel {
 	input := textinput.New()
 	input.Prompt = "enter username: "
 	input.SetVirtualCursor(true)
-	return usernameModel{input: input, grpcPort: grpcPort, identity: identity}
+	nameInput := textinput.New()
+	nameInput.Prompt = "enter name: "
+	nameInput.SetVirtualCursor(true)
+	return usernameModel{nameInput: nameInput, input: input, grpcPort: grpcPort, identity: identity}
 }
 
 func (m usernameModel) Update(msg tea.Msg) (usernameModel, tea.Cmd) {
@@ -36,9 +40,30 @@ func (m usernameModel) Update(msg tea.Msg) (usernameModel, tea.Cmd) {
 		switch key.String() {
 		case "ctrl+c":
 			return m, tea.Quit
+		case "tab", "shift+tab":
+			if m.submitting {
+				return m, nil
+			}
+			if m.nameInput.Focused() {
+				m.nameInput.Blur()
+				return m, m.input.Focus()
+			}
+			m.input.Blur()
+			return m, m.nameInput.Focus()
 		case "enter":
 			if m.submitting {
 				return m, nil
+			}
+			name := strings.TrimSpace(m.nameInput.Value())
+			if name == "" {
+				m.errorText = "Name is required."
+				m.input.Blur()
+				return m, m.nameInput.Focus()
+			}
+			if m.nameInput.Focused() {
+				m.errorText = ""
+				m.nameInput.Blur()
+				return m, m.input.Focus()
 			}
 			username := strings.TrimSpace(m.input.Value())
 			if username == "" {
@@ -48,8 +73,9 @@ func (m usernameModel) Update(msg tea.Msg) (usernameModel, tea.Cmd) {
 			m.submitting = true
 			m.errorText = ""
 			m.input.Blur()
+			m.nameInput.Blur()
 			return m, func() tea.Msg {
-				userID, err := createUser(username, m.identity, m.grpcPort)
+				userID, err := createUser(name, username, m.identity, m.grpcPort)
 				if err != nil {
 					return usernameFailedMsg{err: err}
 				}
@@ -61,17 +87,21 @@ func (m usernameModel) Update(msg tea.Msg) (usernameModel, tea.Cmd) {
 		return m, nil
 	}
 	var cmd tea.Cmd
-	m.input, cmd = m.input.Update(msg)
+	if m.nameInput.Focused() {
+		m.nameInput, cmd = m.nameInput.Update(msg)
+	} else {
+		m.input, cmd = m.input.Update(msg)
+	}
 	return m, cmd
 }
 
 func (m usernameModel) View() string {
-	view := "Create account\n\n" + m.input.View()
+	view := "Create account\n\n" + m.nameInput.View() + "\n" + m.input.View()
 	if m.submitting {
 		return view + "\n\nCreating account…"
 	}
 	if m.errorText != "" {
 		view += "\n\n" + m.errorText
 	}
-	return view + "\n\nEnter to continue • Ctrl+C to quit"
+	return view + "\n\nTab to switch fields • Enter to continue • Ctrl+C to quit"
 }

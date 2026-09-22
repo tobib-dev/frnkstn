@@ -155,7 +155,7 @@ func (m signInModel) Update(msg tea.Msg) (signInModel, tea.Cmd) {
 		if m.state != signInUsername {
 			return m, nil
 		}
-		m.user = userInfo{userID: msg.userID, username: strings.TrimSpace(m.username.input.Value())}
+		m.user = userInfo{userID: msg.userID, name: strings.TrimSpace(m.username.nameInput.Value()), username: strings.TrimSpace(m.username.input.Value())}
 		return m.startSession()
 	case signInSessionMsg:
 		m.session = msg.session

@@ -1,3 +1,13 @@
+## Writing code 
+
+Prefer the smallest clear, correct change that fully solves the task.
+
+Before editing, understand the affected flow and check whether existing 
+code, the standard library, native platform features, or installed 
+dependencies already solve it.
+
+- Build only what the task requires. Avoid speculative abstractions, flexibilities, boilerplate, and unnecessary  dependencies.
+
 ## Creating Database model queries
 
 When creating database model queries do not write out SQL Strings such as the snippet below:
