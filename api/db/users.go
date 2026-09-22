@@ -118,12 +118,16 @@ func (db *DB) CreateUser(ctx context.Context, user User) (User, error) {
 			Query(*db.Session)
 		if err := batch.BindMap(usersByUsernameInsert, qb.M{
 			"username":  user.Username,
-			"id":        user.ID,
+			"user_id":   user.ID,
 			"github_id": user.GitHubID,
 			"name":      user.Name,
 		}); err != nil {
 			return User{}, err
 		}
+	}
+
+	if err := db.Session.ExecuteBatch(batch); err != nil {
+		return User{}, err
 	}
 	return user, nil
 }

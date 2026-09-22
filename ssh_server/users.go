@@ -55,6 +55,7 @@ func createUser(username string, identity github.User, grpcPort string) (string,
 	if response.UserId == "" {
 		return "", fmt.Errorf("create user returned no user ID")
 	}
+	log.Info("successfully created user", "username", response.Username, "location", "main.createUser")
 	return response.UserId, nil
 }
 

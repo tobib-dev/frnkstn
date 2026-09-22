@@ -34,6 +34,7 @@ func (serv *UserService) CreateUser(ctx context.Context, guest *usersV1.CreateUs
 	if err != nil || githubID <= 0 {
 		return nil, status.Error(codes.InvalidArgument, "GitHub ID is required")
 	}
+
 	user, err := serv.store.CreateUser(ctx, db.User{
 		ID:       userID,
 		GitHubID: githubID,
@@ -44,7 +45,7 @@ func (serv *UserService) CreateUser(ctx context.Context, guest *usersV1.CreateUs
 		serv.cfg.logger.Error("failed to create user", "error", err)
 		return nil, status.Error(codes.Internal, "could not create user")
 	}
-	serv.cfg.logger.Info("user created", "user_id", user.ID.String(), "name", user.Name, "username", user.Username)
+	serv.cfg.logger.Info("user created", "name", user.Name, "username", user.Username)
 	return &usersV1.CreateUserResponse{UserId: user.ID.String(), Name: user.Name, Username: user.Username}, nil
 }
 

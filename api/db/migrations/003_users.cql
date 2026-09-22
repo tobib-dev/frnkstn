@@ -1,11 +1,11 @@
 CREATE TABLE IF NOT EXISTS frnkstn.users (
     id TIMEUUID PRIMARY KEY,
     username TEXT,
-    github_id BIG INT,
-    name TEXT,
+    github_id BIGINT,
+    name TEXT
 );
 
 CREATE TABLE IF NOT EXISTS frnkstn.users_by_username (
     username TEXT PRIMARY KEY,
-    id TIMEUUID,
+    user_id TIMEUUID
 );
