@@ -17,7 +17,10 @@ type User struct {
 
 type UserStore interface {
 	GetUserByGitHubID(context.Context, int64) (User, error)
+	GetUserIDByUsername(context.Context, string) (gocql.UUID, error)
+	GetUserByID(context.Context, gocql.UUID) (User, error)
 	CreateUser(context.Context, User) (User, error)
+	UpdateUser(context.Context, User, UpdateUserParams) (User, error)
 }
 
 var usersByGitHubIDMetadata = table.Metadata{
@@ -127,5 +130,91 @@ func (db *DB) CreateUser(ctx context.Context, user User) (User, error) {
 	if err := db.Session.ExecuteBatch(batch); err != nil {
 		return User{}, err
 	}
+	return user, nil
+}
+
+type UserByUsername struct {
+	username string
+	userid   gocql.UUID
+}
+
+func (db *DB) GetUserIDByUsername(ctx context.Context, username string) (gocql.UUID, error) {
+	userInfo := UserByUsername{username: username}
+	if err := db.Session.Query(usersByUsernameTable.Get()).
+		WithContext(ctx).
+		BindStruct(userInfo).
+		GetRelease(&userInfo); err != nil {
+		return gocql.UUID{}, err
+	}
+	return userInfo.userid, nil
+}
+
+func (db *DB) GetUserByID(ctx context.Context, userID gocql.UUID) (User, error) {
+	user := User{ID: userID}
+	if err := db.Session.Query(usersTable.Get()).
+		WithContext(ctx).
+		BindStruct(user).
+		GetRelease(&user); err != nil {
+		return User{}, err
+	}
+	return user, nil
+}
+
+type UpdateUserParams struct {
+	Username string
+	Name     string
+}
+
+func (db *DB) UpdateUser(ctx context.Context, user User, args UpdateUserParams) (User, error) {
+	batch := db.Session.ContextBatch(ctx, gocql.LoggedBatch)
+
+	// Update the user's username and name in the users table
+	query := qb.Update(usersMetadata.Name).
+		Set("username", "name").
+		Where(qb.Eq("id")).
+		Query(*db.Session)
+	if err := batch.BindMap(query, qb.M{
+		"id":       user.ID,
+		"username": args.Username,
+		"name":     args.Name,
+	}); err != nil {
+		return User{}, err
+	}
+	// Update the user's username in the users_by_username table
+	query = qb.Delete(usersByUsernameMetadata.Name).
+		Where(qb.Eq("username")).
+		Query(*db.Session)
+	if err := batch.BindMap(query, qb.M{
+		"username": user.Username,
+	}); err != nil {
+		return User{}, err
+	}
+	query = qb.Insert(usersByUsernameMetadata.Name).
+		Columns("username", "user_id").
+		Query(*db.Session)
+	if err := batch.BindMap(query, qb.M{
+		"username": args.Username,
+		"user_id":  user.ID,
+	}); err != nil {
+		return User{}, err
+	}
+	// Update the user's username in the users_by_github_id table
+	query = qb.Update(usersByGitHubIDMetadata.Name).
+		Set("username", "name").
+		Where(qb.Eq("github_id")).
+		Query(*db.Session)
+	if err := batch.BindMap(query, qb.M{
+		"github_id": user.GitHubID,
+		"username":  args.Name,
+		"name":      args.Name,
+	}); err != nil {
+		return User{}, err
+	}
+
+	if err := db.Session.ExecuteBatch(batch); err != nil {
+		return User{}, err
+	}
+	user.Username = args.Username
+	user.Name = args.Name
 	return user, nil
 }

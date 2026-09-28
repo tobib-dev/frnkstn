@@ -30,6 +30,11 @@ func (serv *UserService) CreateUser(ctx context.Context, guest *usersV1.CreateUs
 	if username == "" {
 		return nil, status.Error(codes.InvalidArgument, "username is required")
 	}
+	userID, err := serv.store.GetUserIDByUsername(ctx, username)
+	if userID != (gocql.UUID{}) {
+		return nil, status.Error(codes.AlreadyExists, "username already exists")
+	}
+
 	githubID, err := strconv.ParseInt(guest.GithubUserId, 10, 64)
 	if err != nil || githubID <= 0 {
 		return nil, status.Error(codes.InvalidArgument, "GitHub ID is required")
@@ -49,9 +54,39 @@ func (serv *UserService) CreateUser(ctx context.Context, guest *usersV1.CreateUs
 	return &usersV1.CreateUserResponse{UserId: user.ID.String(), Name: user.Name, Username: user.Username}, nil
 }
 
+/*
+ * Since the only field that can be updated are the username,
+ * and name we only need to handle that field in the update request.
+ */
 func (serv *UserService) UpdateUser(ctx context.Context, req *usersV1.UpdateUserRequest) (*usersV1.UpdateUserResponse, error) {
-	//
-	return &usersV1.UpdateUserResponse{}, nil
+	username := strings.TrimSpace(req.Username)
+	name := strings.TrimSpace(req.Name)
+	if username == "" || name == "" {
+		return nil, status.Error(codes.InvalidArgument, "username and name are required")
+	}
+	userID, err := gocql.ParseUUID(req.UserId)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "user ID is required")
+	}
+	id, err := serv.store.GetUserIDByUsername(ctx, username)
+	if id != (gocql.UUID{}) && id != userID {
+		return nil, status.Error(codes.NotFound, "username already exists, please choose a different one")
+	}
+	user, err := serv.store.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, status.Error(codes.NotFound, "user not found")
+	}
+
+	updatedUser, err := serv.store.UpdateUser(ctx, user, db.UpdateUserParams{Username: username, Name: name})
+	if err != nil {
+		serv.cfg.logger.Error("failed to update user", "error", err, "location", "UpdateUser")
+		return nil, status.Error(codes.Internal, "failed to update user")
+	}
+	return &usersV1.UpdateUserResponse{
+		UserId:   updatedUser.ID.String(),
+		Username: updatedUser.Username,
+		Name:     updatedUser.Name,
+	}, nil
 }
 
 func (serv *UserService) GetUser(ctx context.Context, req *usersV1.GetUserRequest) (*usersV1.GetUserResponse, error) {
