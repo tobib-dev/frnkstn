@@ -40,3 +40,13 @@ func TestSignInDisplaysDeviceInstructionsWhilePolling(t *testing.T) {
 		t.Error("view exposes the login error")
 	}
 }
+
+func TestSignInDisplaysBannerBeforeHome(t *testing.T) {
+	m := newSignInModel(80, 24, "test-client", "7789")
+	m.banner = "Hello test-user, welcome to the lab!"
+
+	view := m.View().Content
+	if !strings.Contains(view, m.banner) || !strings.Contains(view, "Sign in with GitHub") {
+		t.Fatal("sign-in view is missing the banner or sign-in options")
+	}
+}

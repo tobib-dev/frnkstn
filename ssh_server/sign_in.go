@@ -61,6 +61,7 @@ func (i signInItem) Title() string       { return i.FilterValue() }
 func (i signInItem) Description() string { return "" }
 
 type signInModel struct {
+	banner     string
 	clientID   string
 	deviceAuth GHResponse
 	state      signInState
@@ -208,25 +209,32 @@ func authWithGitHub() string {
 }
 func (m signInModel) View() tea.View {
 	if m.state == signInUsername {
-		return tea.NewView(lipgloss.NewStyle().Margin(2).Render(m.username.View()))
+		return m.view(m.username.View())
 	}
 	if m.state == signInLoadingSession || m.state == signInLoadingUser {
-		return tea.NewView(lipgloss.NewStyle().Margin(2).Render("Loading account…"))
+		return m.view("Loading account…")
 	}
 	if m.state == quit {
-		return tea.NewView(lipgloss.NewStyle().Margin(2).Render("Quit"))
+		return m.view("Quit")
 	}
 	if m.state == signInAuthenticating {
 		if m.deviceAuth.VerificationURI != "" {
-			return tea.NewView(lipgloss.NewStyle().Margin(2).Render(
+			return m.view(
 				"Sign in with GitHub\n\nOpen this URL in your browser:\n" +
 					m.deviceAuth.VerificationURI + "\n\nEnter this code:\n" +
 					m.deviceAuth.UserCode + "\n\nWaiting for authorization…",
-			))
+			)
 		}
-		return tea.NewView(lipgloss.NewStyle().Margin(2).Render("Signing in…"))
+		return m.view("Signing in…")
 	}
-	return tea.NewView(lipgloss.NewStyle().Margin(2).Render(m.list.View()))
+	return m.view(m.list.View())
+}
+
+func (m signInModel) view(content string) tea.View {
+	if m.banner != "" {
+		content = m.banner + "\n\n" + content
+	}
+	return tea.NewView(lipgloss.NewStyle().Margin(2).Render(content))
 }
 
 func (m signInModel) startSession() (signInModel, tea.Cmd) {

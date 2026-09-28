@@ -67,9 +67,6 @@ func main() {
 	srv, err := wish.NewServer(
 		wish.WithAddress(net.JoinHostPort(host, port)),
 		wish.WithHostKeyPath(".ssh/id_ed25519"),
-		wish.WithBannerHandler(func(ctx ssh.Context) string {
-			return fmt.Sprintf(banner, ctx.User())
-		}),
 		wish.WithMiddleware(
 			bubbletea.Middleware(func(s ssh.Session) (tea.Model, []tea.ProgramOption) {
 				return teaHandler(s, cfg)
@@ -112,6 +109,7 @@ func teaHandler(s ssh.Session, cfg config) (tea.Model, []tea.ProgramOption) {
 		cfg:    cfg,
 	}
 	m.signIn = newSignInModel(m.width, m.height, cfg.ghClientID, cfg.grpcPort)
+	m.signIn.banner = fmt.Sprintf(banner, s.User())
 	m.home = newHomeModel(m.width, m.height)
 	return m, []tea.ProgramOption{}
 }
@@ -151,7 +149,9 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case signOutSuccessMsg:
+		welcome := m.signIn.banner
 		m.signIn = newSignInModel(m.width, m.height, m.signIn.clientID, m.signIn.grpcPort)
+		m.signIn.banner = welcome
 		m.home = newHomeModel(m.width, m.height)
 		m.state = signInView
 		if msg.quit {
