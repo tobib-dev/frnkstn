@@ -148,6 +148,9 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.signIn = newSignInModel(m.width, m.height, m.signIn.clientID, m.signIn.grpcPort)
 		m.home = newHomeModel(m.width, m.height)
 		m.state = signInView
+		if msg.quit {
+			return m, tea.Quit
+		}
 		return m, m.signIn.list.NewStatusMessage("Signed out")
 
 	case switchToSignInMsg:

@@ -3,6 +3,7 @@ package main
 import (
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -49,7 +50,7 @@ type homeModel struct {
 	grpcPort string
 }
 type SwitchToHomeMsg struct{}
-type signOutSuccessMsg struct{}
+type signOutSuccessMsg struct{ quit bool }
 type signOutFailureMsg struct{ err error }
 
 func newHomeModel(width, height int) homeModel {
@@ -73,24 +74,37 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 	if m.state == homeSigningOut {
 		return m, nil
 	}
+	if msg, ok := msg.(tea.KeyPressMsg); ok {
+		if key.Matches(msg, m.list.KeyMap.ForceQuit) ||
+			(m.list.FilterState() != list.Filtering && !key.Matches(msg, m.list.KeyMap.ClearFilter) && key.Matches(msg, m.list.KeyMap.Quit)) {
+			return m.signOut(true)
+		}
+	}
 	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "enter" {
 		switch m.list.SelectedItem().(homeItem) {
 		case signOutHomeItem:
-			m.state = homeSigningOut
-			return m, func() tea.Msg {
-				_, err := updateSession(m.session.sessionID, m.session.userID, m.grpcPort)
-				if err != nil {
-					return signOutFailureMsg{err: err}
-				}
-				return signOutSuccessMsg{}
-			}
+			return m.signOut(false)
 		case exitHomeItem:
-			return m, tea.Quit
+			return m.signOut(true)
 		}
 	}
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
 	return m, cmd
+}
+
+func (m homeModel) signOut(quit bool) (homeModel, tea.Cmd) {
+	if quit && m.session.sessionID == "" && m.session.userID == "" {
+		return m, tea.Quit
+	}
+	m.state = homeSigningOut
+	return m, func() tea.Msg {
+		_, err := updateSession(m.session.sessionID, m.session.userID, m.grpcPort)
+		if err != nil {
+			return signOutFailureMsg{err: err}
+		}
+		return signOutSuccessMsg{quit: quit}
+	}
 }
 
 func (m homeModel) View() tea.View {
