@@ -69,8 +69,8 @@ var usersByUsernameMetadata = table.Metadata{
 var usersByUsernameTable = table.New(usersByUsernameMetadata)
 
 type UserByUsername struct {
-	username string     `db:"username"`
-	userid   gocql.UUID `db:"user_id"`
+	Username string     `db:"username"`
+	UserID   gocql.UUID `db:"user_id"`
 }
 
 type UpdateUserParams struct {
@@ -95,14 +95,14 @@ func (db *DB) GetUserByGitHubID(ctx context.Context, githubID int64) (User, erro
 }
 
 func (db *DB) GetUserIDByUsername(ctx context.Context, username string) (gocql.UUID, error) {
-	userInfo := UserByUsername{username: username}
+	userInfo := UserByUsername{Username: username}
 	if err := db.Session.Query(usersByUsernameTable.Get()).
 		WithContext(ctx).
 		BindStruct(userInfo).
 		GetRelease(&userInfo); err != nil {
 		return gocql.UUID{}, err
 	}
-	return userInfo.userid, nil
+	return userInfo.UserID, nil
 }
 
 func (db *DB) GetUserByID(ctx context.Context, userID gocql.UUID) (User, error) {

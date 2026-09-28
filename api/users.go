@@ -26,12 +26,15 @@ func NewUserService(cfg *Config) *UserService {
 func (serv *UserService) CreateUser(ctx context.Context, guest *usersV1.CreateUserRequest) (*usersV1.CreateUserResponse, error) {
 	username := strings.TrimSpace(guest.Username)
 	userID := gocql.TimeUUID()
-
 	if username == "" {
 		return nil, status.Error(codes.InvalidArgument, "username is required")
 	}
-	userID, err := serv.store.GetUserIDByUsername(ctx, username)
-	if userID != (gocql.UUID{}) {
+	existingUserID, err := serv.store.GetUserIDByUsername(ctx, username)
+	if err != nil && !errors.Is(err, gocql.ErrNotFound) {
+		serv.cfg.logger.Error("failed to verify username availability", "error", err, "username", username)
+		return nil, status.Error(codes.Internal, "could verify username availability")
+	}
+	if existingUserID != (gocql.UUID{}) {
 		return nil, status.Error(codes.AlreadyExists, "username already exists")
 	}
 
