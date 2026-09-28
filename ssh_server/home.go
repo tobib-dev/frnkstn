@@ -7,6 +7,7 @@ import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"charm.land/log/v2"
 )
 
 type homeItem int
@@ -41,6 +42,7 @@ type homeState int
 const (
 	homeReady homeState = iota
 	homeSigningOut
+	homeEditingProfile
 )
 
 type homeModel struct {
@@ -48,6 +50,8 @@ type homeModel struct {
 	state    homeState
 	session  sessionInfo
 	grpcPort string
+	user     userInfo
+	profile  profileModel
 }
 type SwitchToHomeMsg struct{}
 type signOutSuccessMsg struct{ quit bool }
@@ -74,6 +78,29 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 	if m.state == homeSigningOut {
 		return m, nil
 	}
+	if updated, ok := msg.(profileUpdatedMsg); ok && m.state == homeEditingProfile {
+		log.Info("updating profile",
+			"old_user", profileLogUser(m.user),
+			"new_user", profileLogUser(updated.user),
+		)
+		m.user = updated.user
+		m.state = homeReady
+		return m, m.list.NewStatusMessage("Profile updated")
+	}
+	if m.state == homeEditingProfile {
+		if key, ok := msg.(tea.KeyPressMsg); ok && !m.profile.saving {
+			switch key.String() {
+			case "esc":
+				m.state = homeReady
+				return m, nil
+			case "ctrl+c":
+				return m.signOut(true)
+			}
+		}
+		var cmd tea.Cmd
+		m.profile, cmd = m.profile.Update(msg)
+		return m, cmd
+	}
 	if msg, ok := msg.(tea.KeyPressMsg); ok {
 		if key.Matches(msg, m.list.KeyMap.ForceQuit) ||
 			(m.list.FilterState() != list.Filtering && !key.Matches(msg, m.list.KeyMap.ClearFilter) && key.Matches(msg, m.list.KeyMap.Quit)) {
@@ -82,6 +109,12 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 	}
 	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "enter" {
 		switch m.list.SelectedItem().(homeItem) {
+		case profileHomeItem:
+			m.state = homeEditingProfile
+			m.profile = newProfileModel(m.user, m.grpcPort)
+			var cmd tea.Cmd
+			m.profile, cmd = m.profile.focusName()
+			return m, cmd
 		case signOutHomeItem:
 			return m.signOut(false)
 		case exitHomeItem:
@@ -91,6 +124,14 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
 	return m, cmd
+}
+
+func profileLogUser(user userInfo) map[string]string {
+	return map[string]string{
+		"user_id":  user.userID,
+		"name":     user.name,
+		"username": user.username,
+	}
 }
 
 func (m homeModel) signOut(quit bool) (homeModel, tea.Cmd) {
@@ -108,6 +149,9 @@ func (m homeModel) signOut(quit bool) (homeModel, tea.Cmd) {
 }
 
 func (m homeModel) View() tea.View {
+	if m.state == homeEditingProfile {
+		return tea.NewView(lipgloss.NewStyle().Margin(2).Render(m.profile.View()))
+	}
 	if m.state == homeSigningOut {
 		return tea.NewView(lipgloss.NewStyle().Margin(2).Render("Signing out…"))
 	}

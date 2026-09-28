@@ -67,3 +67,24 @@ func getGitHubUser(accessToken string) (github.User, error) {
 	log.Info("getGitHubUser", "access_token", accessToken)
 	return github.GetUser(ctx, accessToken)
 }
+
+func updateUser(user userInfo, grpcPort string) (userInfo, error) {
+	if user.userID == "" {
+		return userInfo{}, fmt.Errorf("cannot update profile without user ID")
+	}
+	conn, err := grpc.NewClient("localhost:"+grpcPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return userInfo{}, err
+	}
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
+	defer cancel()
+	response, err := usersV1.NewUserServiceClient(conn).UpdateUser(ctx, &usersV1.UpdateUserRequest{UserId: user.userID, Name: user.name, Username: user.username})
+	if err != nil {
+		return userInfo{}, fmt.Errorf("update user: %w", err)
+	}
+	if response.UserId != user.userID {
+		return userInfo{}, fmt.Errorf("invalid user update response")
+	}
+	return userInfo{userID: response.UserId, name: response.Name, username: response.Username}, nil
+}

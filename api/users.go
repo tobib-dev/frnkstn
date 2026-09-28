@@ -90,7 +90,43 @@ func (serv *UserService) UpdateUser(ctx context.Context, req *usersV1.UpdateUser
 }
 
 func (serv *UserService) GetUser(ctx context.Context, req *usersV1.GetUserRequest) (*usersV1.GetUserResponse, error) {
-	return &usersV1.GetUserResponse{}, nil
+	userID, err := gocql.ParseUUID(req.UserId)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "user ID is required")
+	}
+	user, err := serv.store.GetUserByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, gocql.ErrNotFound) {
+			return nil, status.Error(codes.NotFound, "user not found")
+		}
+		return nil, status.Error(codes.Internal, "failed to get user")
+	}
+	return &usersV1.GetUserResponse{
+		UserId:   user.ID.String(),
+		Username: user.Username,
+		Name:     user.Name,
+	}, nil
+}
+
+func (serv *UserService) GetUserByUsername(ctx context.Context, req *usersV1.GetUserByUsernameRequest) (*usersV1.GetUserByUsernameResponse, error) {
+	username := strings.TrimSpace(req.Username)
+	userID, err := serv.store.GetUserIDByUsername(ctx, username)
+	if err != nil {
+		if errors.Is(err, gocql.ErrNotFound) {
+			return nil, status.Error(codes.NotFound, "user not found")
+		}
+		return nil, status.Error(codes.Internal, "failed to get user")
+	}
+
+	user, err := serv.store.GetUserByID(ctx, userID)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to get user")
+	}
+	return &usersV1.GetUserByUsernameResponse{
+		UserId:   user.ID.String(),
+		Name:     user.Name,
+		Username: user.Username,
+	}, nil
 }
 
 func (serv *UserService) GetUserByGHID(ctx context.Context, req *usersV1.GetUserByGHIDRequest) (*usersV1.GetUserByGHIDResponse, error) {

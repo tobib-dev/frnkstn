@@ -141,8 +141,14 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case SwitchToHomeMsg:
 		m.state = homeView
 		m.home.session = m.signIn.session
+		m.home.user = m.signIn.user
 		m.home.grpcPort = m.signIn.grpcPort
 		return m, m.home.list.NewStatusMessage("Sign in successful")
+
+	case profileUpdatedMsg:
+		if m.state == homeView && m.home.state == homeEditingProfile {
+			m.signIn.user = msg.user
+		}
 
 	case signOutSuccessMsg:
 		m.signIn = newSignInModel(m.width, m.height, m.signIn.clientID, m.signIn.grpcPort)
