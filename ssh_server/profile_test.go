@@ -15,8 +15,18 @@ import (
 
 type profileTestServer struct {
 	usersV1.UnimplementedUserServiceServer
-	requests chan *usersV1.UpdateUserRequest
-	fail     bool
+	requests   chan *usersV1.UpdateUserRequest
+	deletes    chan *usersV1.DeleteUserRequest
+	fail       bool
+	deleteFail bool
+}
+
+func (s *profileTestServer) DeleteUser(_ context.Context, req *usersV1.DeleteUserRequest) (*usersV1.DeleteUserResponse, error) {
+	s.deletes <- req
+	if s.deleteFail {
+		return nil, status.Error(codes.Unavailable, "unavailable")
+	}
+	return &usersV1.DeleteUserResponse{Status: "deleted"}, nil
 }
 
 func (s *profileTestServer) UpdateUser(_ context.Context, req *usersV1.UpdateUserRequest) (*usersV1.UpdateUserResponse, error) {
@@ -38,7 +48,7 @@ func TestProfileSave(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			service := &profileTestServer{requests: make(chan *usersV1.UpdateUserRequest, 1), fail: fail}
+			service := &profileTestServer{requests: make(chan *usersV1.UpdateUserRequest, 1), deletes: make(chan *usersV1.DeleteUserRequest, 1), fail: fail}
 			server := grpc.NewServer()
 			usersV1.RegisterUserServiceServer(server, service)
 			t.Cleanup(server.Stop)
@@ -107,6 +117,67 @@ func TestProfileSave(t *testing.T) {
 				if updated.(mainModel).home.profile.name.Value() != want.name {
 					t.Fatal("reopened form has stale data")
 				}
+			}
+		})
+	}
+}
+
+func TestProfileDeleteAccount(t *testing.T) {
+	for _, deleteFail := range []bool{false, true} {
+		name := "success"
+		if deleteFail {
+			name = "failure"
+		}
+		t.Run(name, func(t *testing.T) {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			service := &profileTestServer{requests: make(chan *usersV1.UpdateUserRequest, 1), deletes: make(chan *usersV1.DeleteUserRequest, 1), deleteFail: deleteFail}
+			server := grpc.NewServer()
+			usersV1.RegisterUserServiceServer(server, service)
+			t.Cleanup(server.Stop)
+			go server.Serve(listener)
+			_, port, _ := net.SplitHostPort(listener.Addr().String())
+
+			m := mainModel{width: 80, height: 24, home: newHomeModel(80, 24), signIn: newSignInModel(80, 24, "client", port)}
+			m.signIn.user = userInfo{userID: "user", name: "Alice", username: "alice"}
+			m.signIn.session = sessionInfo{sessionID: "session", userID: "user"}
+			updated, _ := m.Update(SwitchToHomeMsg{})
+			m = updated.(mainModel)
+			m.home.list.Select(2)
+			updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+			m = updated.(mainModel)
+			updated, cmd := m.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
+			m = updated.(mainModel)
+			if cmd != nil || !m.home.profile.confirmDelete || !strings.Contains(m.View().Content, "Delete this account") {
+				t.Fatal("delete confirmation was not displayed")
+			}
+			updated, cmd = m.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
+			m = updated.(mainModel)
+			if cmd == nil || !m.home.profile.deleting {
+				t.Fatal("account deletion did not start")
+			}
+			result := cmd()
+			request := <-service.deletes
+			if request.UserId != "user" {
+				t.Fatalf("incorrect delete request: %v", request)
+			}
+			updated, cmd = m.Update(result)
+			m = updated.(mainModel)
+			if deleteFail {
+				if m.home.state != homeEditingProfile || m.home.profile.deleting || !strings.Contains(m.View().Content, "Could not delete account") {
+					t.Fatal("delete failure did not preserve the profile form")
+				}
+				return
+			}
+			if cmd == nil || m.signIn.user != (userInfo{}) || m.signIn.session != (sessionInfo{}) {
+				t.Fatal("account deletion did not clear local account state")
+			}
+			updated, _ = m.Update(cmd())
+			m = updated.(mainModel)
+			if m.state != signInView {
+				t.Fatal("account deletion did not return to sign-in")
 			}
 		})
 	}

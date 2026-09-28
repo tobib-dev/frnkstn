@@ -150,9 +150,16 @@ func (serv *UserService) DeleteUser(ctx context.Context, req *usersV1.DeleteUser
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, "invalid user ID")
 	}
-	if err := serv.store.DeleteUser(ctx, db.User{ID: userUUID}); err != nil {
+	user, err := serv.store.GetUserByID(ctx, userUUID)
+	if errors.Is(err, gocql.ErrNotFound) {
+		return nil, status.Error(codes.NotFound, "user not found")
+	}
+	if err != nil {
+		return nil, status.Error(codes.Internal, "could not get user")
+	}
+	if err := serv.store.DeleteUser(ctx, user); err != nil {
 		return nil, status.Error(codes.Internal, "could not delete user")
 	}
-	serv.cfg.logger.Info("Successfully deleted user", "user_id", userUUID)
+	serv.cfg.logger.Info("deleted user", "user_id", userUUID)
 	return &usersV1.DeleteUserResponse{Status: "user deleted successfully"}, nil
 }

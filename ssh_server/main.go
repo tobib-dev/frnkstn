@@ -148,6 +148,10 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.signIn.user = msg.user
 		}
 
+	case accountDeletedMsg:
+		m.signIn.user = userInfo{}
+		m.signIn.session = sessionInfo{}
+
 	case signOutSuccessMsg:
 		welcome := m.signIn.banner
 		m.signIn = newSignInModel(m.width, m.height, m.signIn.clientID, m.signIn.grpcPort)

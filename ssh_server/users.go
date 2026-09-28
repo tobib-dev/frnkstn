@@ -88,3 +88,21 @@ func updateUser(user userInfo, grpcPort string) (userInfo, error) {
 	}
 	return userInfo{userID: response.UserId, name: response.Name, username: response.Username}, nil
 }
+
+func deleteUser(userID, grpcPort string) error {
+	if userID == "" {
+		return fmt.Errorf("cannot delete account without user ID")
+	}
+	conn, err := grpc.NewClient("localhost:"+grpcPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
+	defer cancel()
+	_, err = usersV1.NewUserServiceClient(conn).DeleteUser(ctx, &usersV1.DeleteUserRequest{UserId: userID})
+	if err != nil {
+		return fmt.Errorf("delete user: %w", err)
+	}
+	return nil
+}

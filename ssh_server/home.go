@@ -87,6 +87,10 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		m.state = homeReady
 		return m, m.list.NewStatusMessage("Profile updated")
 	}
+	if _, ok := msg.(accountDeletedMsg); ok && m.state == homeEditingProfile {
+		log.Info("deleted user account", "user", profileLogUser(m.user))
+		return m, func() tea.Msg { return signOutSuccessMsg{} }
+	}
 	if m.state == homeEditingProfile {
 		if key, ok := msg.(tea.KeyPressMsg); ok && !m.profile.saving {
 			switch key.String() {

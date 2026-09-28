@@ -144,3 +144,13 @@ func TestCreateSessionRequiresUserID(t *testing.T) {
 		})
 	}
 }
+
+func TestDeleteUserLoadsUserBeforeDeleting(t *testing.T) {
+	user := db.User{ID: gocql.TimeUUID(), GitHubID: 123, Name: "Alice", Username: "alice"}
+	store := &testUserStore{user: user}
+	service := &UserService{cfg: &Config{logger: slog.Default()}, store: store}
+	response, err := service.DeleteUser(context.Background(), &usersV1.DeleteUserRequest{UserId: user.ID.String()})
+	if err != nil || response.Status == "" || store.deletes != 1 {
+		t.Fatalf("delete failed: response=%v error=%v deletes=%d", response, err, store.deletes)
+	}
+}
