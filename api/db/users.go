@@ -21,6 +21,7 @@ type UserStore interface {
 	GetUserByID(context.Context, gocql.UUID) (User, error)
 	CreateUser(context.Context, User) (User, error)
 	UpdateUser(context.Context, User, UpdateUserParams) (User, error)
+	DeleteUser(context.Context, User) error
 }
 
 var usersByGitHubIDMetadata = table.Metadata{

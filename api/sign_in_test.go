@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
 
 	"github.com/gocql/gocql"
@@ -18,6 +19,8 @@ type testUserStore struct {
 	err      error
 	lookedUp int64
 	creates  int
+	updates  int
+	deletes  int
 }
 
 func (s *testUserStore) GetUserByGitHubID(_ context.Context, id int64) (db.User, error) {
@@ -29,6 +32,36 @@ func (s *testUserStore) CreateUser(_ context.Context, user db.User) (db.User, er
 	user.ID = gocql.TimeUUID()
 	s.user = user
 	return user, s.err
+}
+
+func (s *testUserStore) GetUserIDByUsername(_ context.Context, username string) (gocql.UUID, error) {
+	if s.user.Username == username {
+		return s.user.ID, s.err
+	}
+	return gocql.UUID{}, s.err
+}
+
+func (s *testUserStore) GetUserByID(_ context.Context, id gocql.UUID) (db.User, error) {
+	if s.user.ID != id {
+		return db.User{}, gocql.ErrNotFound
+	}
+	return s.user, s.err
+}
+
+func (s *testUserStore) UpdateUser(_ context.Context, user db.User, params db.UpdateUserParams) (db.User, error) {
+	s.updates++
+	if s.err != nil {
+		return db.User{}, s.err
+	}
+	user.Name = params.Name
+	user.Username = params.Username
+	s.user = user
+	return user, nil
+}
+
+func (s *testUserStore) DeleteUser(_ context.Context, _ db.User) error {
+	s.deletes++
+	return s.err
 }
 
 type testSessionStore struct {
@@ -63,7 +96,7 @@ func TestGetUserByGitHubID(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &testUserStore{user: db.User{ID: gocql.TimeUUID(), Username: "alice"}, err: tt.err}
-			service := &UserService{store: store}
+			service := &UserService{cfg: &Config{logger: slog.Default()}, store: store}
 			resp, err := service.GetUserByGHID(context.Background(), &usersV1.GetUserByGHIDRequest{GithubUserId: "123"})
 			if status.Code(err) != tt.code || store.lookedUp != 123 {
 				t.Fatalf("lookup=%d err=%v", store.lookedUp, err)
@@ -77,7 +110,7 @@ func TestGetUserByGitHubID(t *testing.T) {
 
 func TestCreateUserGeneratesLocalID(t *testing.T) {
 	store := &testUserStore{}
-	service := &UserService{store: store}
+	service := &UserService{cfg: &Config{logger: slog.Default()}, store: store}
 	resp, err := service.CreateUser(context.Background(), &usersV1.CreateUserRequest{GithubUserId: "123", Username: " alice ", Name: "Alice", UserId: "ignored"})
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +130,7 @@ func TestCreateSessionRequiresUserID(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &testSessionStore{}
-			service := &SessionService{store: store}
+			service := &SessionService{cfg: &Config{logger: slog.Default()}, store: store}
 			resp, err := service.CreateSession(context.Background(), &sessionsV1.CreateSessionRequest{UserId: tt.requestedID, AccessToken: "token", AccessTokenExpiresAt: "3600", RefreshToken: "refresh", RefreshTokenExpiresAt: "7200"})
 			if status.Code(err) != tt.code {
 				t.Fatalf("unexpected error: %v", err)

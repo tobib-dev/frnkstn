@@ -146,5 +146,13 @@ func (serv *UserService) GetUserByGHID(ctx context.Context, req *usersV1.GetUser
 }
 
 func (serv *UserService) DeleteUser(ctx context.Context, req *usersV1.DeleteUserRequest) (*usersV1.DeleteUserResponse, error) {
-	return &usersV1.DeleteUserResponse{}, nil
+	userUUID, err := gocql.ParseUUID(req.UserId)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid user ID")
+	}
+	if err := serv.store.DeleteUser(ctx, db.User{ID: userUUID}); err != nil {
+		return nil, status.Error(codes.Internal, "could not delete user")
+	}
+	serv.cfg.logger.Info("Successfully deleted user", "user_id", userUUID)
+	return &usersV1.DeleteUserResponse{Status: "user deleted successfully"}, nil
 }
