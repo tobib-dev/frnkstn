@@ -2,72 +2,175 @@ package main
 
 import (
 	"context"
+	"errors"
 
+	"github.com/gocql/gocql"
 	friendsv1 "github.com/tobib-dev/frnkstn-proto/friends/v1"
 	"github.com/tobib-dev/frnkstn/api/db"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type FriendService struct {
 	cfg   *Config
 	store db.FriendStore
+	users db.UserStore
 	friendsv1.UnimplementedFriendServiceServer
 }
 
 func NewFriendService(cfg *Config) *FriendService {
-	return &FriendService{
-		cfg:   cfg,
-		store: &cfg.db.session,
-	}
+	return &FriendService{cfg: cfg, store: &cfg.db.session, users: &cfg.db.session}
 }
 
-type FriendStatus int
-
-const (
-	StatusPending FriendStatus = iota
-	StatusAccepted
-	StatusRejected
-	StatusBlocked
-	StatusRemoved
-)
-
-/*
- * Send a friend request, return status pending
- */
 func (s *FriendService) AddFriend(ctx context.Context, req *friendsv1.AddFriendRequest) (*friendsv1.AddFriendResponse, error) {
-	return &friendsv1.AddFriendResponse{}, nil
+	userID, friendID, err := friendIDs(req.UserId, req.FriendId)
+	if err != nil {
+		return nil, err
+	}
+	if userID == friendID {
+		return nil, status.Error(codes.InvalidArgument, "cannot add yourself as a friend")
+	}
+	if _, err := s.users.GetUserByID(ctx, userID); err != nil {
+		return nil, userLookupError(err)
+	}
+	friendUser, err := s.users.GetUserByID(ctx, friendID)
+	if err != nil {
+		return nil, userLookupError(err)
+	}
+
+	friendship := db.Friend{ID: gocql.TimeUUID(), UserID: userID, FriendID: friendID, FriendName: friendUser.Username}
+	friendship, err = s.store.AddFriend(ctx, friendship)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "could not add friend")
+	}
+	return &friendsv1.AddFriendResponse{FriendshipId: friendship.ID.String(), FriendId: friendship.FriendID.String(), Status: friendship.Status}, nil
 }
 
-/*
- * Accept a friend request, return status accepted
- */
 func (s *FriendService) AcceptFriend(ctx context.Context, req *friendsv1.AcceptFriendRequest) (*friendsv1.AcceptFriendResponse, error) {
-	return &friendsv1.AcceptFriendResponse{}, nil
+	friendship, err := s.friendship(ctx, req.FriendshipId, req.UserId, req.FriendId)
+	if err != nil {
+		return nil, err
+	}
+	friendship, err = s.store.AcceptFriend(ctx, friendship)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "could not accept friend request")
+	}
+	return &friendsv1.AcceptFriendResponse{FriendshipId: friendship.ID.String(), UserId: friendship.UserID.String(), FriendId: friendship.FriendID.String(), Status: friendship.Status}, nil
 }
 
-/*
- * Reject a friend request, return status rejected
- */
 func (s *FriendService) RejectFriend(ctx context.Context, req *friendsv1.RejectFriendRequest) (*friendsv1.RejectFriendResponse, error) {
-	return &friendsv1.RejectFriendResponse{}, nil
+	friendship, err := s.friendship(ctx, req.FriendshipId, req.UserId, req.FriendId)
+	if err != nil {
+		return nil, err
+	}
+	friendship, err = s.store.RejectFriend(ctx, friendship)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "could not reject friend request")
+	}
+	return &friendsv1.RejectFriendResponse{FriendshipId: friendship.ID.String(), UserId: friendship.UserID.String(), FriendId: friendship.FriendID.String(), Status: friendship.Status}, nil
 }
 
-/*
- * Get a list of friends
- */
 func (s *FriendService) GetFriends(ctx context.Context, req *friendsv1.GetFriendsRequest) (*friendsv1.GetFriendsResponse, error) {
-	return &friendsv1.GetFriendsResponse{}, nil
+	userID, err := parseFriendID(req.UserId, "user ID")
+	if err != nil {
+		return nil, err
+	}
+	friends, err := s.store.GetFriends(ctx, userID)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "could not get friends")
+	}
+	items := make([]*friendsv1.GetFriendsItem, 0, len(friends))
+	for _, friend := range friends {
+		items = append(items, friendItem(friend))
+	}
+	return &friendsv1.GetFriendsResponse{Items: items}, nil
 }
 
-/*
- * Retrieve a single friend
- */
 func (s *FriendService) GetFriend(ctx context.Context, req *friendsv1.GetFriendRequest) (*friendsv1.GetFriendResponse, error) {
-	return &friendsv1.GetFriendResponse{}, nil
+	friendship, err := s.findFriendship(ctx, req.UserId, req.FriendId)
+	if err != nil {
+		return nil, err
+	}
+	return &friendsv1.GetFriendResponse{Item: friendItem(friendship)}, nil
 }
 
-/*
- * Remove a friend, return status removed
- */
 func (s *FriendService) RemoveFriend(ctx context.Context, req *friendsv1.RemoveFriendRequest) (*friendsv1.RemoveFriendResponse, error) {
-	return &friendsv1.RemoveFriendResponse{}, nil
+	friendship, err := s.friendship(ctx, req.FriendshipId, req.UserId, req.FriendId)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.store.RemoveFriend(ctx, friendship.ID, friendship.UserID); err != nil {
+		return nil, status.Error(codes.Internal, "could not remove friend")
+	}
+	return &friendsv1.RemoveFriendResponse{Status: "removed"}, nil
+}
+
+func (s *FriendService) friendship(ctx context.Context, friendshipID, userID, friendID string) (db.Friend, error) {
+	id, err := parseFriendID(friendshipID, "friendship ID")
+	if err != nil {
+		return db.Friend{}, err
+	}
+	user, friend, err := friendIDs(userID, friendID)
+	if err != nil {
+		return db.Friend{}, err
+	}
+	friendship, err := s.store.GetFriend(ctx, id)
+	if errors.Is(err, gocql.ErrNotFound) {
+		return db.Friend{}, status.Error(codes.NotFound, "friendship not found")
+	}
+	if err != nil {
+		return db.Friend{}, status.Error(codes.Internal, "could not get friendship")
+	}
+	if friendship.UserID != user || friendship.FriendID != friend {
+		return db.Friend{}, status.Error(codes.PermissionDenied, "friendship does not match the supplied users")
+	}
+	return friendship, nil
+}
+
+func (s *FriendService) findFriendship(ctx context.Context, userID, friendID string) (db.Friend, error) {
+	user, friend, err := friendIDs(userID, friendID)
+	if err != nil {
+		return db.Friend{}, err
+	}
+	friends, err := s.store.GetFriends(ctx, user)
+	if err != nil {
+		return db.Friend{}, status.Error(codes.Internal, "could not get friends")
+	}
+	for _, friendship := range friends {
+		if friendship.FriendID == friend {
+			return friendship, nil
+		}
+	}
+	return db.Friend{}, status.Error(codes.NotFound, "friendship not found")
+}
+
+func friendIDs(userID, friendID string) (gocql.UUID, gocql.UUID, error) {
+	user, err := parseFriendID(userID, "user ID")
+	if err != nil {
+		return gocql.UUID{}, gocql.UUID{}, err
+	}
+	friend, err := parseFriendID(friendID, "friend ID")
+	if err != nil {
+		return gocql.UUID{}, gocql.UUID{}, err
+	}
+	return user, friend, nil
+}
+
+func parseFriendID(value, name string) (gocql.UUID, error) {
+	id, err := gocql.ParseUUID(value)
+	if err != nil {
+		return gocql.UUID{}, status.Error(codes.InvalidArgument, "valid "+name+" is required")
+	}
+	return id, nil
+}
+
+func userLookupError(err error) error {
+	if errors.Is(err, gocql.ErrNotFound) {
+		return status.Error(codes.NotFound, "user not found")
+	}
+	return status.Error(codes.Internal, "could not get user")
+}
+
+func friendItem(friend db.Friend) *friendsv1.GetFriendsItem {
+	return &friendsv1.GetFriendsItem{UserId: friend.UserID.String(), FriendshipId: friend.ID.String(), FriendId: friend.FriendID.String(), FriendUsername: friend.FriendName}
 }

@@ -21,6 +21,7 @@ type testUserStore struct {
 	creates  int
 	updates  int
 	deletes  int
+	users    map[gocql.UUID]db.User
 }
 
 func (s *testUserStore) GetUserByGitHubID(_ context.Context, id int64) (db.User, error) {
@@ -42,6 +43,9 @@ func (s *testUserStore) GetUserIDByUsername(_ context.Context, username string) 
 }
 
 func (s *testUserStore) GetUserByID(_ context.Context, id gocql.UUID) (db.User, error) {
+	if user, ok := s.users[id]; ok {
+		return user, s.err
+	}
 	if s.user.ID != id {
 		return db.User{}, gocql.ErrNotFound
 	}
