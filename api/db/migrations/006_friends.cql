@@ -7,9 +7,10 @@ CREATE TABLE frnkstn.friends (
 );
 
 CREATE TABLE frnkstn.friends_by_user_id (
-    user_id TIMEUUID PRIMARY KEY,
+    user_id TIMEUUID,
+    id TIMEUUID,
     friend_id TIMEUUID,
-    friendship_id TIMEUUID,
     friend_name TEXT,
     status TEXT,
-);
+    PRIMARY KEY (user_id, id),
+) WITH CLUSTERING ORDER BY (id ASC);

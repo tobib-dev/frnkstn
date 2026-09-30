@@ -43,12 +43,13 @@ var friendsByUserIDMetadata = table.Metadata{
 	Name: "friends_by_user_id",
 	Columns: []string{
 		"user_id",
+		"id",
 		"friend_id",
-		"friendship_id",
 		"friend_name",
 		"status",
 	},
 	PartKey: []string{"user_id"},
+	SortKey: []string{"id"},
 }
 
 var friendsByUserIDTable = table.New(friendsByUserIDMetadata)
@@ -73,14 +74,14 @@ func (db *DB) AddFriend(ctx context.Context, friend Friend) (Friend, error) {
 
 	if (friend.UserID != gocql.UUID{}) {
 		query := qb.Insert(friendsByUserIDMetadata.Name).
-			Columns("user_id", "friend_id", "friendship_id", "friend_name", "status").
+			Columns("user_id", "id", "friend_id", "friend_name", "status").
 			Query(*db.Session)
 		if err := batch.BindMap(query, qb.M{
-			"user_id":       friend.UserID,
-			"friend_id":     friend.FriendID,
-			"friendship_id": friend.ID,
-			"friend_name":   friend.FriendName,
-			"status":        friend.Status,
+			"user_id":     friend.UserID,
+			"friend_id":   friend.FriendID,
+			"id":          friend.ID,
+			"friend_name": friend.FriendName,
+			"status":      friend.Status,
 		}); err != nil {
 			return Friend{}, err
 		}
@@ -113,12 +114,12 @@ func (db *DB) AcceptFriend(ctx context.Context, friend Friend) (Friend, error) {
 	if (friend.UserID != gocql.UUID{}) {
 		query := qb.Update(friendsByUserIDMetadata.Name).
 			Set("status").
-			Where(qb.Eq("user_id"), qb.Eq("friendship_id")).
+			Where(qb.Eq("user_id"), qb.Eq("id")).
 			Query(*db.Session)
 		if err := batch.BindMap(query, qb.M{
-			"user_id":       friend.UserID,
-			"friendship_id": friend.ID,
-			"status":        friend.Status,
+			"user_id": friend.UserID,
+			"id":      friend.ID,
+			"status":  friend.Status,
 		}); err != nil {
 			return Friend{}, err
 		}
@@ -151,12 +152,12 @@ func (db *DB) RejectFriend(ctx context.Context, friend Friend) (Friend, error) {
 	if (friend.UserID != gocql.UUID{}) {
 		query := qb.Update(friendsByUserIDMetadata.Name).
 			Set("status").
-			Where(qb.Eq("user_id"), qb.Eq("friendship_id")).
+			Where(qb.Eq("user_id"), qb.Eq("id")).
 			Query(*db.Session)
 		if err := batch.BindMap(query, qb.M{
-			"user_id":       friend.UserID,
-			"friendship_id": friend.ID,
-			"status":        friend.Status,
+			"user_id": friend.UserID,
+			"id":      friend.ID,
+			"status":  friend.Status,
 		}); err != nil {
 			return Friend{}, err
 		}
@@ -189,12 +190,12 @@ func (db *DB) RemoveFriend(ctx context.Context, friendshipID gocql.UUID, userID 
 	if (userID != gocql.UUID{}) {
 		query := qb.Update(friendsByUserIDMetadata.Name).
 			Set("status").
-			Where(qb.Eq("user_id"), qb.Eq("friendship_id")).
+			Where(qb.Eq("user_id"), qb.Eq("id")).
 			Query(*db.Session)
 		if err := batch.BindMap(query, qb.M{
-			"user_id":       userID,
-			"friendship_id": friendshipID,
-			"status":        status,
+			"user_id": userID,
+			"id":      friendshipID,
+			"status":  status,
 		}); err != nil {
 			return err
 		}
