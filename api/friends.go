@@ -23,50 +23,69 @@ func NewFriendService(cfg *Config) *FriendService {
 }
 
 func (s *FriendService) AddFriend(ctx context.Context, req *friendsv1.AddFriendRequest) (*friendsv1.AddFriendResponse, error) {
+	logger := s.cfg.logger.With("user_id", req.UserId, "friend_id", req.FriendId)
+	logger.Info("adding friend")
+
 	userID, friendID, err := friendIDs(req.UserId, req.FriendId)
 	if err != nil {
+		logger.Warn("invalid add friend request", "error", err)
 		return nil, err
 	}
 	if userID == friendID {
+		logger.Warn("cannot add user as their own friend")
 		return nil, status.Error(codes.InvalidArgument, "cannot add yourself as a friend")
 	}
 	if _, err := s.users.GetUserByID(ctx, userID); err != nil {
+		logger.Error("failed to get requesting user", "error", err)
 		return nil, userLookupError(err)
 	}
 	friendUser, err := s.users.GetUserByID(ctx, friendID)
 	if err != nil {
+		logger.Error("failed to get requested friend", "error", err)
 		return nil, userLookupError(err)
 	}
 
 	friendship := db.Friend{ID: gocql.TimeUUID(), UserID: userID, FriendID: friendID, FriendName: friendUser.Username}
 	friendship, err = s.store.AddFriend(ctx, friendship)
 	if err != nil {
+		logger.Error("failed to add friend", "error", err, "friendship_id", friendship.ID)
 		return nil, status.Error(codes.Internal, "could not add friend")
 	}
+	logger.Info("friend added", "friendship_id", friendship.ID, "status", friendship.Status)
 	return &friendsv1.AddFriendResponse{FriendshipId: friendship.ID.String(), FriendId: friendship.FriendID.String(), Status: friendship.Status}, nil
 }
 
 func (s *FriendService) AcceptFriend(ctx context.Context, req *friendsv1.AcceptFriendRequest) (*friendsv1.AcceptFriendResponse, error) {
+	logger := s.cfg.logger.With("friendship_id", req.FriendshipId, "user_id", req.UserId, "friend_id", req.FriendId)
+	logger.Info("accepting friend")
 	friendship, err := s.friendship(ctx, req.FriendshipId, req.UserId, req.FriendId)
 	if err != nil {
+		logger.Error("failed to get friendship", "error", err)
 		return nil, err
 	}
 	friendship, err = s.store.AcceptFriend(ctx, friendship)
 	if err != nil {
+		logger.Error("failed to accept friend", "error", err)
 		return nil, status.Error(codes.Internal, "could not accept friend request")
 	}
+	logger.Info("friend accepted", "status", friendship.Status)
 	return &friendsv1.AcceptFriendResponse{FriendshipId: friendship.ID.String(), UserId: friendship.UserID.String(), FriendId: friendship.FriendID.String(), Status: friendship.Status}, nil
 }
 
 func (s *FriendService) RejectFriend(ctx context.Context, req *friendsv1.RejectFriendRequest) (*friendsv1.RejectFriendResponse, error) {
+	logger := s.cfg.logger.With("friendship_id", req.FriendshipId, "user_id", req.UserId, "friend_id", req.FriendId)
+	logger.Info("rejecting friend")
 	friendship, err := s.friendship(ctx, req.FriendshipId, req.UserId, req.FriendId)
 	if err != nil {
+		logger.Error("failed to get friendship", "error", err)
 		return nil, err
 	}
 	friendship, err = s.store.RejectFriend(ctx, friendship)
 	if err != nil {
+		logger.Error("failed to reject friend", "error", err)
 		return nil, status.Error(codes.Internal, "could not reject friend request")
 	}
+	logger.Info("friend rejected", "status", friendship.Status)
 	return &friendsv1.RejectFriendResponse{FriendshipId: friendship.ID.String(), UserId: friendship.UserID.String(), FriendId: friendship.FriendID.String(), Status: friendship.Status}, nil
 }
 
@@ -77,31 +96,41 @@ func (s *FriendService) GetFriends(ctx context.Context, req *friendsv1.GetFriend
 	}
 	friends, err := s.store.GetFriends(ctx, userID)
 	if err != nil {
+		s.cfg.logger.Error("failed to get friends", "error", err, "user_id", userID)
 		return nil, status.Error(codes.Internal, "could not get friends")
 	}
 	items := make([]*friendsv1.GetFriendsItem, 0, len(friends))
 	for _, friend := range friends {
 		items = append(items, friendItem(friend))
 	}
+	s.cfg.logger.Info("friends retrieved", "user_id", userID, "count", len(items))
 	return &friendsv1.GetFriendsResponse{Items: items}, nil
 }
 
 func (s *FriendService) GetFriend(ctx context.Context, req *friendsv1.GetFriendRequest) (*friendsv1.GetFriendResponse, error) {
+	logger := s.cfg.logger.With("user_id", req.UserId, "friend_id", req.FriendId)
 	friendship, err := s.findFriendship(ctx, req.UserId, req.FriendId)
 	if err != nil {
+		logger.Error("failed to get friend", "error", err)
 		return nil, err
 	}
+	logger.Info("friend retrieved", "friendship_id", friendship.ID)
 	return &friendsv1.GetFriendResponse{Item: friendItem(friendship)}, nil
 }
 
 func (s *FriendService) RemoveFriend(ctx context.Context, req *friendsv1.RemoveFriendRequest) (*friendsv1.RemoveFriendResponse, error) {
+	logger := s.cfg.logger.With("friendship_id", req.FriendshipId, "user_id", req.UserId, "friend_id", req.FriendId)
+	logger.Info("removing friend")
 	friendship, err := s.friendship(ctx, req.FriendshipId, req.UserId, req.FriendId)
 	if err != nil {
+		logger.Error("failed to get friendship", "error", err)
 		return nil, err
 	}
 	if err := s.store.RemoveFriend(ctx, friendship.ID, friendship.UserID); err != nil {
+		logger.Error("failed to remove friend", "error", err)
 		return nil, status.Error(codes.Internal, "could not remove friend")
 	}
+	logger.Info("friend removed")
 	return &friendsv1.RemoveFriendResponse{Status: "removed"}, nil
 }
 

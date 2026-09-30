@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 
 	"github.com/gocql/gocql"
@@ -58,7 +59,7 @@ func (s *testFriendStore) GetFriends(_ context.Context, userID gocql.UUID) ([]db
 func TestRemoveFriendUsesFriendshipID(t *testing.T) {
 	friendship := db.Friend{ID: gocql.TimeUUID(), UserID: gocql.TimeUUID(), FriendID: gocql.TimeUUID()}
 	store := &testFriendStore{friend: friendship}
-	service := &FriendService{store: store}
+	service := &FriendService{cfg: &Config{logger: slog.Default()}, store: store}
 
 	response, err := service.RemoveFriend(context.Background(), &friendsv1.RemoveFriendRequest{
 		FriendshipId: friendship.ID.String(),
@@ -82,7 +83,7 @@ func TestRemoveFriendUsesFriendshipID(t *testing.T) {
 func TestRejectFriendUsesFriendshipID(t *testing.T) {
 	friendship := db.Friend{ID: gocql.TimeUUID(), UserID: gocql.TimeUUID(), FriendID: gocql.TimeUUID()}
 	store := &testFriendStore{friend: friendship}
-	service := &FriendService{store: store}
+	service := &FriendService{cfg: &Config{logger: slog.Default()}, store: store}
 
 	response, err := service.RejectFriend(context.Background(), &friendsv1.RejectFriendRequest{
 		FriendshipId: friendship.ID.String(),
@@ -110,7 +111,7 @@ func TestAddFriendGeneratesTimeUUIDOnServer(t *testing.T) {
 		friendID: {ID: friendID, Username: "bob"},
 	}}
 	store := &testFriendStore{}
-	service := &FriendService{store: store, users: users}
+	service := &FriendService{cfg: &Config{logger: slog.Default()}, store: store, users: users}
 
 	response, err := service.AddFriend(context.Background(), &friendsv1.AddFriendRequest{UserId: userID.String(), FriendId: friendID.String()})
 	if err != nil {
