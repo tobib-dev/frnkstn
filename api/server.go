@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 
+	friendsV1 "github.com/tobib-dev/frnkstn-proto/friends/v1"
 	sessionsV1 "github.com/tobib-dev/frnkstn-proto/sessions/v1"
 	usersV1 "github.com/tobib-dev/frnkstn-proto/users/v1"
 	"github.com/tobib-dev/frnkstn/api/db"
@@ -86,9 +87,11 @@ func main() {
 	// Inject DB into services and register services
 	userService := NewUserService(&cfg)
 	sessionService := NewSessionService(&cfg)
+	friendshipService := NewFriendService(&cfg)
 
 	usersV1.RegisterUserServiceServer(server, userService)
 	sessionsV1.RegisterSessionServiceServer(server, sessionService)
+	friendsV1.RegisterFriendServiceServer(server, friendshipService)
 
 	logger.Info("frnkstn started", "port", cfg.server.port, "environment", "dev")
 	if err := server.Serve(lis); err != nil {
