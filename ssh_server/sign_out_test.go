@@ -35,8 +35,8 @@ func TestHomeSignOut(t *testing.T) {
 		key  tea.KeyPressMsg
 		quit bool
 	}{
-		{"sign out", 3, tea.KeyPressMsg{Code: tea.KeyEnter}, false},
-		{"exit", 4, tea.KeyPressMsg{Code: tea.KeyEnter}, true},
+		{"sign out", 4, tea.KeyPressMsg{Code: tea.KeyEnter}, false},
+		{"exit", 5, tea.KeyPressMsg{Code: tea.KeyEnter}, true},
 		{"q", 0, tea.KeyPressMsg{Code: 'q', Text: "q"}, true},
 		{"ctrl+c", 0, tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}, true},
 	} {

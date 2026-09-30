@@ -60,7 +60,7 @@ func TestProfileSave(t *testing.T) {
 			m.signIn.session = sessionInfo{sessionID: "session", userID: "user"}
 			updated, _ := m.Update(SwitchToHomeMsg{})
 			m = updated.(mainModel)
-			m.home.list.Select(2)
+			m.home.list.Select(3)
 			updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 			m = updated.(mainModel)
 			if m.home.state != homeEditingProfile || m.home.profile.name.Value() != "Alice" || m.home.profile.username.Value() != "alice" {
@@ -145,7 +145,7 @@ func TestProfileDeleteAccount(t *testing.T) {
 			m.signIn.session = sessionInfo{sessionID: "session", userID: "user"}
 			updated, _ := m.Update(SwitchToHomeMsg{})
 			m = updated.(mainModel)
-			m.home.list.Select(2)
+			m.home.list.Select(3)
 			updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 			m = updated.(mainModel)
 			updated, cmd := m.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
@@ -186,7 +186,7 @@ func TestProfileDeleteAccount(t *testing.T) {
 func TestProfileValidationAndCancel(t *testing.T) {
 	m := newHomeModel(80, 24)
 	m.user = userInfo{userID: "user", name: "Alice", username: "alice"}
-	m.list.Select(2)
+	m.list.Select(3)
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m.profile.name.SetValue("   ")
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})

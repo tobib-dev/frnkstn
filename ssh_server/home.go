@@ -15,6 +15,7 @@ type homeItem int
 const (
 	messagesHomeItem homeItem = iota
 	groupsHomeItem
+	addFriendHomeItem
 	profileHomeItem
 	signOutHomeItem
 	exitHomeItem
@@ -26,6 +27,8 @@ func (i homeItem) FilterValue() string {
 		return "Messages"
 	case groupsHomeItem:
 		return "Groups"
+	case addFriendHomeItem:
+		return "Add friend"
 	case profileHomeItem:
 		return "Profile"
 	case signOutHomeItem:
@@ -43,15 +46,17 @@ const (
 	homeReady homeState = iota
 	homeSigningOut
 	homeEditingProfile
+	homeAddingFriend
 )
 
 type homeModel struct {
-	list     list.Model
-	state    homeState
-	session  sessionInfo
-	grpcPort string
-	user     userInfo
-	profile  profileModel
+	list      list.Model
+	state     homeState
+	session   sessionInfo
+	grpcPort  string
+	user      userInfo
+	profile   profileModel
+	addFriend addFriendModel
 }
 type SwitchToHomeMsg struct{}
 type signOutSuccessMsg struct{ quit bool }
@@ -60,7 +65,7 @@ type signOutFailureMsg struct{ err error }
 func newHomeModel(width, height int) homeModel {
 	delegate := list.NewDefaultDelegate()
 	delegate.ShowDescription = false
-	l := list.New([]list.Item{messagesHomeItem, groupsHomeItem, profileHomeItem, signOutHomeItem, exitHomeItem}, delegate, width, height)
+	l := list.New([]list.Item{messagesHomeItem, groupsHomeItem, addFriendHomeItem, profileHomeItem, signOutHomeItem, exitHomeItem}, delegate, width, height)
 	l.Title = "Home"
 	l.StatusMessageLifetime = 4 * time.Second
 	return homeModel{list: l}
@@ -91,6 +96,24 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		log.Info("deleted user account", "user", profileLogUser(m.user))
 		return m, func() tea.Msg { return signOutSuccessMsg{} }
 	}
+	if added, ok := msg.(friendAddedMsg); ok && m.state == homeAddingFriend {
+		m.state = homeReady
+		return m, m.list.NewStatusMessage("Friend request sent to " + added.username)
+	}
+	if m.state == homeAddingFriend {
+		if key, ok := msg.(tea.KeyPressMsg); ok && !m.addFriend.adding {
+			switch key.String() {
+			case "esc":
+				m.state = homeReady
+				return m, nil
+			case "ctrl+c":
+				return m.signOut(true)
+			}
+		}
+		var cmd tea.Cmd
+		m.addFriend, cmd = m.addFriend.Update(msg)
+		return m, cmd
+	}
 	if m.state == homeEditingProfile {
 		if key, ok := msg.(tea.KeyPressMsg); ok && !m.profile.saving {
 			switch key.String() {
@@ -113,6 +136,11 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 	}
 	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "enter" {
 		switch m.list.SelectedItem().(homeItem) {
+		case addFriendHomeItem:
+			m.state = homeAddingFriend
+			m.addFriend = newAddFriendModel(m.user.userID, m.grpcPort)
+			cmd := m.addFriend.input.Focus()
+			return m, cmd
 		case profileHomeItem:
 			m.state = homeEditingProfile
 			m.profile = newProfileModel(m.user, m.grpcPort)
@@ -155,6 +183,9 @@ func (m homeModel) signOut(quit bool) (homeModel, tea.Cmd) {
 func (m homeModel) View() tea.View {
 	if m.state == homeEditingProfile {
 		return tea.NewView(lipgloss.NewStyle().Margin(2).Render(m.profile.View()))
+	}
+	if m.state == homeAddingFriend {
+		return tea.NewView(lipgloss.NewStyle().Margin(2).Render(m.addFriend.View()))
 	}
 	if m.state == homeSigningOut {
 		return tea.NewView(lipgloss.NewStyle().Margin(2).Render("Signing out…"))
