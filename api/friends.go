@@ -35,7 +35,8 @@ func (s *FriendService) AddFriend(ctx context.Context, req *friendsv1.AddFriendR
 		logger.Warn("cannot add user as their own friend")
 		return nil, status.Error(codes.InvalidArgument, "cannot add yourself as a friend")
 	}
-	if _, err := s.users.GetUserByID(ctx, userID); err != nil {
+	user, err := s.users.GetUserByID(ctx, userID)
+	if err != nil {
 		logger.Error("failed to get requesting user", "error", err)
 		return nil, userLookupError(err)
 	}
@@ -46,7 +47,7 @@ func (s *FriendService) AddFriend(ctx context.Context, req *friendsv1.AddFriendR
 	}
 
 	friendship := db.Friend{ID: gocql.TimeUUID(), UserID: userID, FriendID: friendID, FriendName: friendUser.Username}
-	friendship, err = s.store.AddFriend(ctx, friendship)
+	friendship, err = s.store.AddFriend(ctx, db.AddFriendParams{Friend: friendship, RequesterUsername: user.Username})
 	if err != nil {
 		logger.Error("failed to add friend", "error", err, "friendship_id", friendship.ID)
 		return nil, status.Error(codes.Internal, "could not add friend")
@@ -126,7 +127,7 @@ func (s *FriendService) RemoveFriend(ctx context.Context, req *friendsv1.RemoveF
 		logger.Error("failed to get friendship", "error", err)
 		return nil, err
 	}
-	if err := s.store.RemoveFriend(ctx, friendship.ID, friendship.UserID); err != nil {
+	if err := s.store.RemoveFriend(ctx, friendship.ID, friendship.UserID, friendship.FriendID); err != nil {
 		logger.Error("failed to remove friend", "error", err)
 		return nil, status.Error(codes.Internal, "could not remove friend")
 	}
@@ -150,7 +151,9 @@ func (s *FriendService) friendship(ctx context.Context, friendshipID, userID, fr
 	if err != nil {
 		return db.Friend{}, status.Error(codes.Internal, "could not get friendship")
 	}
-	if friendship.UserID != user || friendship.FriendID != friend {
+	forward := friendship.UserID == user && friendship.FriendID == friend
+	reverse := friendship.UserID == friend && friendship.FriendID == user
+	if !forward && !reverse {
 		return db.Friend{}, status.Error(codes.PermissionDenied, "friendship does not match the supplied users")
 	}
 	return friendship, nil
@@ -201,5 +204,5 @@ func userLookupError(err error) error {
 }
 
 func friendItem(friend db.Friend) *friendsv1.GetFriendsItem {
-	return &friendsv1.GetFriendsItem{UserId: friend.UserID.String(), FriendshipId: friend.ID.String(), FriendId: friend.FriendID.String(), FriendUsername: friend.FriendName}
+	return &friendsv1.GetFriendsItem{UserId: friend.UserID.String(), FriendshipId: friend.ID.String(), FriendId: friend.FriendID.String(), FriendUsername: friend.FriendName, Status: friend.Status}
 }
