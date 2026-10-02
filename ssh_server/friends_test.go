@@ -21,6 +21,13 @@ type addFriendTestServer struct {
 	fail    bool
 }
 
+func (s *addFriendTestServer) GetFriends(_ context.Context, req *friendsv1.GetFriendsRequest) (*friendsv1.GetFriendsResponse, error) {
+	return &friendsv1.GetFriendsResponse{Items: []*friendsv1.GetFriendsItem{
+		{UserId: req.UserId, FriendshipId: "pending-friendship", FriendId: "pending-friend", FriendUsername: "bob", Status: "pending"},
+		{UserId: req.UserId, FriendshipId: "accepted-friendship", FriendId: "accepted-friend", FriendUsername: "carol", Status: "accepted"},
+	}}, nil
+}
+
 func (s *addFriendTestServer) GetUserByUsername(_ context.Context, req *usersv1.GetUserByUsernameRequest) (*usersv1.GetUserByUsernameResponse, error) {
 	if s.fail {
 		return nil, status.Error(codes.NotFound, "user not found")
@@ -82,5 +89,29 @@ func TestHomeAddFriend(t *testing.T) {
 				t.Fatal("successful request did not return home")
 			}
 		})
+	}
+}
+
+func TestAddFriendDisplaysUnrespondedRequests(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &addFriendTestServer{}
+	server := grpc.NewServer()
+	friendsv1.RegisterFriendServiceServer(server, service)
+	t.Cleanup(server.Stop)
+	go server.Serve(listener)
+	_, port, _ := net.SplitHostPort(listener.Addr().String())
+
+	model := newAddFriendModel("user", port)
+	msg := fetchPendingFriendRequests("user", port)()
+	model, _ = model.Update(msg)
+	view := model.View()
+	if model.loadingRequests || !strings.Contains(view, "Unresponded requests") || !strings.Contains(view, "bob") {
+		t.Fatalf("pending request was not displayed: %q", view)
+	}
+	if strings.Contains(view, "carol") {
+		t.Fatalf("accepted friend was displayed as an unresponded request: %q", view)
 	}
 }

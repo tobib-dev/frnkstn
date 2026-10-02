@@ -139,8 +139,7 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		case addFriendHomeItem:
 			m.state = homeAddingFriend
 			m.addFriend = newAddFriendModel(m.user.userID, m.grpcPort)
-			cmd := m.addFriend.input.Focus()
-			return m, cmd
+			return m, tea.Batch(m.addFriend.input.Focus(), fetchPendingFriendRequests(m.user.userID, m.grpcPort))
 		case profileHomeItem:
 			m.state = homeEditingProfile
 			m.profile = newProfileModel(m.user, m.grpcPort)

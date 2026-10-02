@@ -17,11 +17,18 @@ import (
 
 type friendAddedMsg struct{ username string }
 type friendAddFailedMsg struct{ err error }
+type pendingFriendRequestsLoadedMsg struct{ items []*friendsv1.GetFriendsItem }
+type pendingFriendRequestsFailedMsg struct{ err error }
+
+const pendingFriendStatus = "pending"
 
 type addFriendModel struct {
 	input            textinput.Model
 	userID, grpcPort string
 	adding           bool
+	loadingRequests  bool
+	pendingRequests  []*friendsv1.GetFriendsItem
+	requestsError    string
 	errorText        string
 }
 
@@ -29,10 +36,26 @@ func newAddFriendModel(userID, grpcPort string) addFriendModel {
 	input := textinput.New()
 	input.Prompt = "Friend username: "
 	input.SetVirtualCursor(true)
-	return addFriendModel{input: input, userID: userID, grpcPort: grpcPort}
+	return addFriendModel{input: input, userID: userID, grpcPort: grpcPort, loadingRequests: true}
 }
 
 func (m addFriendModel) Update(msg tea.Msg) (addFriendModel, tea.Cmd) {
+	switch msg := msg.(type) {
+	case pendingFriendRequestsLoadedMsg:
+		m.loadingRequests = false
+		m.pendingRequests = nil
+		for _, item := range msg.items {
+			if item.GetStatus() == pendingFriendStatus {
+				m.pendingRequests = append(m.pendingRequests, item)
+			}
+		}
+		m.requestsError = ""
+		return m, nil
+	case pendingFriendRequestsFailedMsg:
+		m.loadingRequests = false
+		m.requestsError = "Could not load friend requests."
+		return m, nil
+	}
 	if failure, ok := msg.(friendAddFailedMsg); ok {
 		m.adding = false
 		m.errorText = "Could not add friend. Please try again."
@@ -66,6 +89,23 @@ func (m addFriendModel) Update(msg tea.Msg) (addFriendModel, tea.Cmd) {
 
 func (m addFriendModel) View() string {
 	view := "Add friend\n\n" + m.input.View()
+	view += "\n\nUnresponded requests\n"
+	switch {
+	case m.loadingRequests:
+		view += "Loading…"
+	case m.requestsError != "":
+		view += m.requestsError
+	case len(m.pendingRequests) == 0:
+		view += "No unresponded requests."
+	default:
+		for _, request := range m.pendingRequests {
+			username := request.FriendUsername
+			if username == "" {
+				username = request.FriendId
+			}
+			view += "\n• " + username
+		}
+	}
 	if m.adding {
 		return view + "\n\nSending friend request…"
 	}
@@ -73,6 +113,23 @@ func (m addFriendModel) View() string {
 		view += "\n\n" + m.errorText
 	}
 	return view + "\n\nEnter to send request • Esc to cancel • Ctrl+C to quit"
+}
+
+func fetchPendingFriendRequests(userID, grpcPort string) tea.Cmd {
+	return func() tea.Msg {
+		conn, err := grpc.NewClient("localhost:"+grpcPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return pendingFriendRequestsFailedMsg{err: err}
+		}
+		defer conn.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
+		defer cancel()
+		response, err := friendsv1.NewFriendServiceClient(conn).GetFriends(ctx, &friendsv1.GetFriendsRequest{UserId: userID})
+		if err != nil {
+			return pendingFriendRequestsFailedMsg{err: err}
+		}
+		return pendingFriendRequestsLoadedMsg{items: response.Items}
+	}
 }
 
 func addFriend(userID, username, grpcPort string) error {

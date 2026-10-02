@@ -25,7 +25,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
-const host = "localhost"
+const host = "0.0.0.0"
 
 var banner string
 
