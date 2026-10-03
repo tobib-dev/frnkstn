@@ -100,12 +100,21 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		m.state = homeReady
 		return m, m.list.NewStatusMessage("Friend request sent to " + added.username)
 	}
+	if resolved, ok := msg.(friendRequestResolvedMsg); ok && m.state == homeAddingFriend {
+		m.state = homeReady
+		if resolved.message == "" {
+			return m, nil
+		}
+		return m, m.list.NewStatusMessage(resolved.message)
+	}
 	if m.state == homeAddingFriend {
-		if key, ok := msg.(tea.KeyPressMsg); ok && !m.addFriend.adding {
+		if key, ok := msg.(tea.KeyPressMsg); ok && !m.addFriend.adding && !m.addFriend.acting {
 			switch key.String() {
 			case "esc":
-				m.state = homeReady
-				return m, nil
+				if m.addFriend.selectedRequest == nil {
+					m.state = homeReady
+					return m, nil
+				}
 			case "ctrl+c":
 				return m.signOut(true)
 			}

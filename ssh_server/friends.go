@@ -19,8 +19,18 @@ type friendAddedMsg struct{ username string }
 type friendAddFailedMsg struct{ err error }
 type pendingFriendRequestsLoadedMsg struct{ items []*friendsv1.GetFriendsItem }
 type pendingFriendRequestsFailedMsg struct{ err error }
+type friendRequestResolvedMsg struct{ message string }
+type friendRequestFailedMsg struct{ err error }
 
 const pendingFriendStatus = "pending"
+
+type friendRequestAction int
+
+const (
+	cancelFriendRequest friendRequestAction = iota
+	acceptFriendRequest
+	declineFriendRequest
+)
 
 type addFriendModel struct {
 	input            textinput.Model
@@ -28,6 +38,10 @@ type addFriendModel struct {
 	adding           bool
 	loadingRequests  bool
 	pendingRequests  []*friendsv1.GetFriendsItem
+	requestCursor    int
+	selectedRequest  *friendsv1.GetFriendsItem
+	actionCursor     int
+	acting           bool
 	requestsError    string
 	errorText        string
 }
@@ -36,7 +50,7 @@ func newAddFriendModel(userID, grpcPort string) addFriendModel {
 	input := textinput.New()
 	input.Prompt = "Friend username: "
 	input.SetVirtualCursor(true)
-	return addFriendModel{input: input, userID: userID, grpcPort: grpcPort, loadingRequests: true}
+	return addFriendModel{input: input, userID: userID, grpcPort: grpcPort, loadingRequests: true, requestCursor: -1}
 }
 
 func (m addFriendModel) Update(msg tea.Msg) (addFriendModel, tea.Cmd) {
@@ -55,6 +69,13 @@ func (m addFriendModel) Update(msg tea.Msg) (addFriendModel, tea.Cmd) {
 		m.loadingRequests = false
 		m.requestsError = "Could not load friend requests."
 		return m, nil
+	case friendRequestFailedMsg:
+		m.acting = false
+		m.errorText = "Could not update friend request. Please try again."
+		return m, nil
+	}
+	if m.selectedRequest != nil {
+		return m.updateSelectedRequest(msg)
 	}
 	if failure, ok := msg.(friendAddFailedMsg); ok {
 		m.adding = false
@@ -67,19 +88,51 @@ func (m addFriendModel) Update(msg tea.Msg) (addFriendModel, tea.Cmd) {
 	if m.adding {
 		return m, nil
 	}
-	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "enter" {
-		username := strings.TrimSpace(m.input.Value())
-		if username == "" {
-			m.errorText = "Username is required."
-			return m, nil
-		}
-		m.adding, m.errorText = true, ""
-		m.input.Blur()
-		return m, func() tea.Msg {
-			if err := addFriend(m.userID, username, m.grpcPort); err != nil {
-				return friendAddFailedMsg{err: err}
+	if m.requestCursor >= 0 {
+		if key, ok := msg.(tea.KeyPressMsg); ok {
+			switch key.String() {
+			case "up":
+				if m.requestCursor == 0 {
+					m.requestCursor = -1
+					return m, m.input.Focus()
+				}
+				m.requestCursor--
+			case "down":
+				if m.requestCursor < len(m.pendingRequests)-1 {
+					m.requestCursor++
+				}
+			case "tab":
+				m.requestCursor = -1
+				return m, m.input.Focus()
+			case "enter":
+				m.selectedRequest = m.pendingRequests[m.requestCursor]
+				m.actionCursor, m.errorText = 0, ""
 			}
-			return friendAddedMsg{username: username}
+		}
+		return m, nil
+	}
+	if key, ok := msg.(tea.KeyPressMsg); ok {
+		switch key.String() {
+		case "tab", "down":
+			if len(m.pendingRequests) > 0 && (key.String() == "tab" || strings.TrimSpace(m.input.Value()) == "") {
+				m.requestCursor = 0
+				m.input.Blur()
+				return m, nil
+			}
+		case "enter":
+			username := strings.TrimSpace(m.input.Value())
+			if username == "" {
+				m.errorText = "Username is required."
+				return m, nil
+			}
+			m.adding, m.errorText = true, ""
+			m.input.Blur()
+			return m, func() tea.Msg {
+				if err := addFriend(m.userID, username, m.grpcPort); err != nil {
+					return friendAddFailedMsg{err: err}
+				}
+				return friendAddedMsg{username: username}
+			}
 		}
 	}
 	var cmd tea.Cmd
@@ -87,7 +140,81 @@ func (m addFriendModel) Update(msg tea.Msg) (addFriendModel, tea.Cmd) {
 	return m, cmd
 }
 
+func (m addFriendModel) updateSelectedRequest(msg tea.Msg) (addFriendModel, tea.Cmd) {
+	if m.acting {
+		return m, nil
+	}
+	key, ok := msg.(tea.KeyPressMsg)
+	if !ok {
+		return m, nil
+	}
+	actions := m.requestActions()
+	switch key.String() {
+	case "up":
+		if m.actionCursor > 0 {
+			m.actionCursor--
+		}
+	case "down":
+		if m.actionCursor < len(actions)-1 {
+			m.actionCursor++
+		}
+	case "esc":
+		m.selectedRequest = nil
+	case "enter":
+		action := actions[m.actionCursor]
+		if action.label == "Home" {
+			return m, func() tea.Msg { return friendRequestResolvedMsg{} }
+		}
+		m.acting, m.errorText = true, ""
+		request := m.selectedRequest
+		return m, func() tea.Msg {
+			if err := resolveFriendRequest(m.userID, m.grpcPort, request, action.action); err != nil {
+				return friendRequestFailedMsg{err: err}
+			}
+			return friendRequestResolvedMsg{message: action.message}
+		}
+	}
+	return m, nil
+}
+
+type friendRequestOption struct {
+	label   string
+	action  friendRequestAction
+	message string
+}
+
+func (m addFriendModel) requestActions() []friendRequestOption {
+	if m.selectedRequest.GetUserId() == m.userID {
+		return []friendRequestOption{{label: "Cancel", action: cancelFriendRequest, message: "Friend request canceled"}, {label: "Home"}}
+	}
+	return []friendRequestOption{
+		{label: "Accept", action: acceptFriendRequest, message: "Friend request accepted"},
+		{label: "Decline", action: declineFriendRequest, message: "Friend request declined"},
+		{label: "Home"},
+	}
+}
+
 func (m addFriendModel) View() string {
+	if m.selectedRequest != nil {
+		username := m.selectedRequest.GetFriendUsername()
+		if username == "" {
+			username = m.selectedRequest.GetFriendId()
+		}
+		view := "Friend request: " + username + "\n\n"
+		for i, action := range m.requestActions() {
+			cursor := "  "
+			if i == m.actionCursor {
+				cursor = "> "
+			}
+			view += cursor + action.label + "\n"
+		}
+		if m.acting {
+			view += "\nUpdating friend request…"
+		} else if m.errorText != "" {
+			view += "\n" + m.errorText
+		}
+		return view + "\n\n↑/↓ to select • Enter to confirm • Esc to go back • Ctrl+C to quit"
+	}
 	view := "Add friend\n\n" + m.input.View()
 	view += "\n\nUnresponded requests\n"
 	switch {
@@ -98,12 +225,16 @@ func (m addFriendModel) View() string {
 	case len(m.pendingRequests) == 0:
 		view += "No unresponded requests."
 	default:
-		for _, request := range m.pendingRequests {
+		for i, request := range m.pendingRequests {
 			username := request.FriendUsername
 			if username == "" {
 				username = request.FriendId
 			}
-			view += "\n• " + username
+			cursor := "  "
+			if i == m.requestCursor {
+				cursor = "> "
+			}
+			view += "\n" + cursor + username
 		}
 	}
 	if m.adding {
@@ -112,7 +243,7 @@ func (m addFriendModel) View() string {
 	if m.errorText != "" {
 		view += "\n\n" + m.errorText
 	}
-	return view + "\n\nEnter to send request • Esc to cancel • Ctrl+C to quit"
+	return view + "\n\nTab or ↓ to select requests • Enter to continue • Esc to cancel • Ctrl+C to quit"
 }
 
 func fetchPendingFriendRequests(userID, grpcPort string) tea.Cmd {
@@ -152,4 +283,28 @@ func addFriend(userID, username, grpcPort string) error {
 		return fmt.Errorf("add friend: %w", err)
 	}
 	return nil
+}
+
+func resolveFriendRequest(userID, grpcPort string, request *friendsv1.GetFriendsItem, action friendRequestAction) error {
+	conn, err := grpc.NewClient("localhost:"+grpcPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
+	defer cancel()
+	client := friendsv1.NewFriendServiceClient(conn)
+	friendID := request.FriendId
+	if request.UserId != userID {
+		friendID = request.UserId
+	}
+	switch action {
+	case cancelFriendRequest:
+		_, err = client.RemoveFriend(ctx, &friendsv1.RemoveFriendRequest{FriendshipId: request.FriendshipId, UserId: userID, FriendId: friendID})
+	case acceptFriendRequest:
+		_, err = client.AcceptFriend(ctx, &friendsv1.AcceptFriendRequest{FriendshipId: request.FriendshipId, UserId: userID, FriendId: friendID})
+	case declineFriendRequest:
+		_, err = client.RejectFriend(ctx, &friendsv1.RejectFriendRequest{FriendshipId: request.FriendshipId, UserId: userID, FriendId: friendID})
+	}
+	return err
 }

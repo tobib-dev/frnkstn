@@ -64,6 +64,9 @@ func (s *FriendService) AcceptFriend(ctx context.Context, req *friendsv1.AcceptF
 		logger.Error("failed to get friendship", "error", err)
 		return nil, err
 	}
+	if friendship.FriendID.String() != req.UserId {
+		return nil, status.Error(codes.PermissionDenied, "only the recipient can accept a friend request")
+	}
 	friendship, err = s.store.AcceptFriend(ctx, friendship)
 	if err != nil {
 		logger.Error("failed to accept friend", "error", err)
@@ -80,6 +83,9 @@ func (s *FriendService) RejectFriend(ctx context.Context, req *friendsv1.RejectF
 	if err != nil {
 		logger.Error("failed to get friendship", "error", err)
 		return nil, err
+	}
+	if friendship.FriendID.String() != req.UserId {
+		return nil, status.Error(codes.PermissionDenied, "only the recipient can decline a friend request")
 	}
 	friendship, err = s.store.RejectFriend(ctx, friendship)
 	if err != nil {
@@ -102,7 +108,16 @@ func (s *FriendService) GetFriends(ctx context.Context, req *friendsv1.GetFriend
 	}
 	items := make([]*friendsv1.GetFriendsItem, 0, len(friends))
 	for _, friend := range friends {
-		items = append(items, friendItem(friend))
+		item := friendItem(friend)
+		// ponytail: one canonical lookup per row; store requester_id in the index if friend lists become large.
+		friendship, err := s.store.GetFriend(ctx, friend.ID)
+		if err != nil {
+			s.cfg.logger.Error("failed to get friendship", "error", err, "friendship_id", friend.ID)
+			return nil, status.Error(codes.Internal, "could not get friends")
+		}
+		item.UserId = friendship.UserID.String()
+		item.FriendId = friendship.FriendID.String()
+		items = append(items, item)
 	}
 	s.cfg.logger.Info("friends retrieved", "user_id", userID, "count", len(items))
 	return &friendsv1.GetFriendsResponse{Items: items}, nil
@@ -126,6 +141,9 @@ func (s *FriendService) RemoveFriend(ctx context.Context, req *friendsv1.RemoveF
 	if err != nil {
 		logger.Error("failed to get friendship", "error", err)
 		return nil, err
+	}
+	if friendship.Status == "pending" && friendship.UserID.String() != req.UserId {
+		return nil, status.Error(codes.PermissionDenied, "only the requester can cancel a friend request")
 	}
 	if err := s.store.RemoveFriend(ctx, friendship.ID, friendship.UserID, friendship.FriendID); err != nil {
 		logger.Error("failed to remove friend", "error", err)

@@ -19,6 +19,7 @@ type testFriendStore struct {
 	removedForFriend gocql.UUID
 	addedUserName    string
 	getFriendsCalls  int
+	listed           []db.Friend
 }
 
 func (s *testFriendStore) AddFriend(_ context.Context, params db.AddFriendParams) (db.Friend, error) {
@@ -55,10 +56,31 @@ func (s *testFriendStore) GetFriend(_ context.Context, id gocql.UUID) (db.Friend
 }
 func (s *testFriendStore) GetFriends(_ context.Context, userID gocql.UUID) ([]db.Friend, error) {
 	s.getFriendsCalls++
+	if s.listed != nil {
+		return s.listed, nil
+	}
 	if s.friend.UserID != userID {
 		return nil, nil
 	}
 	return []db.Friend{s.friend}, nil
+}
+
+func TestGetFriendsIdentifiesRequester(t *testing.T) {
+	requester, recipient, friendshipID := gocql.TimeUUID(), gocql.TimeUUID(), gocql.TimeUUID()
+	store := &testFriendStore{
+		friend: db.Friend{ID: friendshipID, UserID: requester, FriendID: recipient, FriendName: "recipient", Status: "pending"},
+		listed: []db.Friend{{ID: friendshipID, UserID: recipient, FriendID: requester, FriendName: "requester", Status: "pending"}},
+	}
+	service := &FriendService{cfg: &Config{logger: slog.Default()}, store: store}
+
+	response, err := service.GetFriends(context.Background(), &friendsv1.GetFriendsRequest{UserId: recipient.String()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := response.Items[0]
+	if item.UserId != requester.String() || item.FriendId != recipient.String() || item.FriendUsername != "requester" {
+		t.Fatalf("unexpected recipient view: %+v", item)
+	}
 }
 
 func TestRemoveFriendUsesFriendshipID(t *testing.T) {
