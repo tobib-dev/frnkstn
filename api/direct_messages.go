@@ -16,17 +16,19 @@ import (
 )
 
 type directMessageService struct {
-	cfg   *Config
-	store db.DMStore
-	users db.UserStore
+	cfg     *Config
+	store   db.DMStore
+	users   db.UserStore
+	friends db.FriendStore
 	dmsV1.UnimplementedDMServiceServer
 }
 
 func NewDMService(cfg *Config) *directMessageService {
 	return &directMessageService{
-		cfg:   cfg,
-		store: &cfg.db.session,
-		users: &cfg.db.session,
+		cfg:     cfg,
+		store:   &cfg.db.session,
+		users:   &cfg.db.session,
+		friends: &cfg.db.session,
 	}
 }
 
@@ -41,7 +43,7 @@ func (s *directMessageService) SendMessages(
 		return nil, status.Error(codes.InvalidArgument, "message is required")
 	}
 
-	dmID, err := parseID(item.GetDmId(), "DM ID")
+	dmID, err := parseID(item.GetDmId(), "friendship ID")
 	if err != nil {
 		logger.Warn("invalid DM ID", "error", err)
 		return nil, err
@@ -65,13 +67,24 @@ func (s *directMessageService) SendMessages(
 	}
 
 	logger = logger.With("dm_id", dmID.String(), "author_id", authorID.String(), "receiver_id", receiverID.String())
-	if _, err := s.users.GetUserByID(ctx, authorID); err != nil {
-		logger.Error("failed to get message author", "error", err)
-		return nil, userLookupError(err)
+	friendship, err := s.friends.GetFriend(ctx, dmID)
+	if errors.Is(err, gocql.ErrNotFound) {
+		logger.Info("friendship not found")
+		return nil, status.Error(codes.NotFound, "friendship not found")
 	}
-	if _, err := s.users.GetUserByID(ctx, receiverID); err != nil {
-		logger.Error("failed to get message receiver", "error", err)
-		return nil, userLookupError(err)
+	if err != nil {
+		logger.Error("failed to get friendship", "error", err)
+		return nil, status.Error(codes.Internal, "could not get friendship")
+	}
+	if friendship.Status != "accepted" {
+		logger.Warn("friendship is not accepted", "status", friendship.Status)
+		return nil, status.Error(codes.FailedPrecondition, "friendship must be accepted before sending messages")
+	}
+	forward := friendship.UserID == authorID && friendship.FriendID == receiverID
+	reverse := friendship.UserID == receiverID && friendship.FriendID == authorID
+	if !forward && !reverse {
+		logger.Warn("message users do not match friendship")
+		return nil, status.Error(codes.PermissionDenied, "message users do not match friendship")
 	}
 
 	messageID := gocql.TimeUUID()
@@ -101,7 +114,7 @@ func (s *directMessageService) GetMessage(
 	if item == nil {
 		return nil, status.Error(codes.InvalidArgument, "message is required")
 	}
-	dmID, err := parseID(item.GetDmId(), "DM ID")
+	dmID, err := parseID(item.GetDmId(), "friendship ID")
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +172,7 @@ func (s *directMessageService) GetMessages(
 	if item == nil {
 		return nil, status.Error(codes.InvalidArgument, "DM is required")
 	}
-	dmID, err := parseID(item.GetDmId(), "DM ID")
+	dmID, err := parseID(item.GetDmId(), "friendship ID")
 	if err != nil {
 		return nil, err
 	}
@@ -195,8 +208,8 @@ func (s *directMessageService) SubscribeMessages(
 	}
 	dmID, err := gocql.ParseUUID(req.DmId)
 	if err != nil {
-		logger.Error("Invalid DM ID", "location", "SubscribeMessages", "error", err)
-		return status.Errorf(codes.InvalidArgument, "invalid DM ID: %v", err)
+		logger.Error("Invalid friendship ID", "location", "SubscribeMessages", "error", err)
+		return status.Errorf(codes.InvalidArgument, "invalid friendship ID: %v", err)
 	}
 
 	cursor := gocql.MinTimeUUID(lastMsgTime.AsTime())

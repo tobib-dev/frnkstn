@@ -9,6 +9,8 @@ import (
 	"github.com/gocql/gocql"
 	dmsV1 "github.com/tobib-dev/frnkstn-proto/dms/v1"
 	"github.com/tobib-dev/frnkstn/api/db"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type testDMStore struct {
@@ -52,7 +54,8 @@ func TestSendMessagesGeneratesMessageID(t *testing.T) {
 		authorID:   {ID: authorID},
 		receiverID: {ID: receiverID},
 	}}
-	service := &directMessageService{cfg: &Config{logger: slog.Default()}, store: store, users: users}
+	friends := &testFriendStore{friend: db.Friend{ID: dmID, UserID: authorID, FriendID: receiverID, Status: "accepted"}}
+	service := &directMessageService{cfg: &Config{logger: slog.Default()}, store: store, users: users, friends: friends}
 
 	response, err := service.SendMessages(context.Background(), &dmsV1.SendMessagesRequest{Item: &dmsV1.DirectMessageItem{
 		DmId: dmID.String(), AuthorId: authorID.String(), ReceiverId: receiverID.String(), Content: " hello ", MessageId: "ignored",
@@ -65,6 +68,24 @@ func TestSendMessagesGeneratesMessageID(t *testing.T) {
 	}
 	if store.sent.ID != dmID || store.sent.AuthorID != authorID || store.sent.ReceiverID != receiverID || store.sent.Content != "hello" {
 		t.Fatalf("unexpected stored message: %+v", store.sent)
+	}
+}
+
+func TestSendMessagesRequiresExistingFriendship(t *testing.T) {
+	dmID, authorID, receiverID := gocql.TimeUUID(), gocql.TimeUUID(), gocql.TimeUUID()
+	store := &testDMStore{}
+	service := &directMessageService{
+		cfg:     &Config{logger: slog.Default()},
+		store:   store,
+		users:   &testUserStore{},
+		friends: &testFriendStore{},
+	}
+
+	_, err := service.SendMessages(context.Background(), &dmsV1.SendMessagesRequest{Item: &dmsV1.DirectMessageItem{
+		DmId: dmID.String(), AuthorId: authorID.String(), ReceiverId: receiverID.String(), Content: "hello",
+	}})
+	if status.Code(err) != codes.NotFound || store.sent != (db.DM{}) {
+		t.Fatalf("unexpected result: err=%v sent=%+v", err, store.sent)
 	}
 }
 
