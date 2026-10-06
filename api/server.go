@@ -9,9 +9,11 @@ import (
 	"os"
 	"strconv"
 
+	dmsV1 "github.com/tobib-dev/frnkstn-proto/dms/v1"
 	friendsV1 "github.com/tobib-dev/frnkstn-proto/friends/v1"
 	sessionsV1 "github.com/tobib-dev/frnkstn-proto/sessions/v1"
 	usersV1 "github.com/tobib-dev/frnkstn-proto/users/v1"
+
 	"github.com/tobib-dev/frnkstn/api/db"
 
 	"github.com/joho/godotenv"
@@ -88,10 +90,12 @@ func main() {
 	userService := NewUserService(&cfg)
 	sessionService := NewSessionService(&cfg)
 	friendshipService := NewFriendService(&cfg)
+	directMessageService := NewDMService(&cfg)
 
 	usersV1.RegisterUserServiceServer(server, userService)
 	sessionsV1.RegisterSessionServiceServer(server, sessionService)
 	friendsV1.RegisterFriendServiceServer(server, friendshipService)
+	dmsV1.RegisterDMServiceServer(server, directMessageService)
 
 	logger.Info("frnkstn started", "port", cfg.server.port, "environment", "dev")
 	if err := server.Serve(lis); err != nil {
