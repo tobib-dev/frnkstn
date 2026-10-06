@@ -12,11 +12,11 @@ require (
 	github.com/gocql/gocql v1.7.0
 	github.com/joho/godotenv v1.5.1
 	github.com/scylladb/gocqlx/v3 v3.0.4
-	github.com/tobib-dev/frnkstn-proto v0.0.0-20260916200540-f93d084742a7
+	github.com/tobib-dev/frnkstn-proto v0.0.0-20261006201801-827cf0dc7d25
 	google.golang.org/grpc v1.79.3
 )
 
-require google.golang.org/protobuf v1.36.11 // indirect
+require google.golang.org/protobuf v1.36.11
 
 require (
 	github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be // indirect

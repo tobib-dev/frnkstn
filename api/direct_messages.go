@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"time"
 
 	"github.com/gocql/gocql"
@@ -10,6 +12,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type directMessageService struct {
@@ -27,40 +30,149 @@ func NewDMService(cfg *Config) *directMessageService {
 	}
 }
 
-type Message struct {
-	dmID         gocql.UUID
-	messageID    gocql.UUID
-	friendshipID gocql.UUID
-	authorID     gocql.UUID
-	text         string
-}
-
 func (s *directMessageService) SendMessages(
 	ctx context.Context,
 	req *dmsV1.SendMessagesRequest,
 ) (*dmsV1.SendMessagesResponse, error) {
-	return &dmsV1.SendMessagesResponse{}, nil
+	logger := s.cfg.logger.With("location", "SendMessages")
+	item := req.GetItem()
+	if item == nil {
+		logger.Warn("message is required")
+		return nil, status.Error(codes.InvalidArgument, "message is required")
+	}
+
+	dmID, err := parseID(item.GetDmId(), "DM ID")
+	if err != nil {
+		logger.Warn("invalid DM ID", "error", err)
+		return nil, err
+	}
+	authorID, err := parseID(item.GetAuthorId(), "author ID")
+	if err != nil {
+		logger.Warn("invalid author ID", "error", err)
+		return nil, err
+	}
+	receiverID, err := parseID(item.GetReceiverId(), "receiver ID")
+	if err != nil {
+		logger.Warn("invalid receiver ID", "error", err)
+		return nil, err
+	}
+	if authorID == receiverID {
+		return nil, status.Error(codes.InvalidArgument, "author and receiver must be different users")
+	}
+	content := strings.TrimSpace(item.GetContent())
+	if content == "" {
+		return nil, status.Error(codes.InvalidArgument, "message content is required")
+	}
+
+	logger = logger.With("dm_id", dmID.String(), "author_id", authorID.String(), "receiver_id", receiverID.String())
+	if _, err := s.users.GetUserByID(ctx, authorID); err != nil {
+		logger.Error("failed to get message author", "error", err)
+		return nil, userLookupError(err)
+	}
+	if _, err := s.users.GetUserByID(ctx, receiverID); err != nil {
+		logger.Error("failed to get message receiver", "error", err)
+		return nil, userLookupError(err)
+	}
+
+	messageID := gocql.TimeUUID()
+	message := db.DM{
+		ID:              dmID,
+		MessageID:       messageID,
+		AuthorID:        authorID,
+		ReceiverID:      receiverID,
+		Content:         content,
+		LastMessageTime: messageID.Time(),
+	}
+	if err := s.store.SendMessage(ctx, message); err != nil {
+		logger.Error("failed to send message", "message_id", messageID.String(), "error", err)
+		return nil, status.Error(codes.Internal, "could not send message")
+	}
+
+	logger.Info("message sent", "message_id", messageID.String())
+	return &dmsV1.SendMessagesResponse{Item: messageItem(message)}, nil
 }
 
 func (s *directMessageService) GetMessage(
 	ctx context.Context,
 	req *dmsV1.GetMessageRequest,
 ) (*dmsV1.GetMessageResponse, error) {
-	return &dmsV1.GetMessageResponse{}, nil
+	logger := s.cfg.logger.With("location", "GetMessage")
+	item := req.GetItem()
+	if item == nil {
+		return nil, status.Error(codes.InvalidArgument, "message is required")
+	}
+	dmID, err := parseID(item.GetDmId(), "DM ID")
+	if err != nil {
+		return nil, err
+	}
+	messageID, err := parseID(item.GetMessageId(), "message ID")
+	if err != nil {
+		return nil, err
+	}
+	logger = logger.With("dm_id", dmID.String(), "message_id", messageID.String())
+
+	message, err := s.store.GetMessage(ctx, dmID, messageID)
+	if errors.Is(err, gocql.ErrNotFound) {
+		logger.Info("message not found")
+		return nil, status.Error(codes.NotFound, "message not found")
+	}
+	if err != nil {
+		logger.Error("failed to get message", "error", err)
+		return nil, status.Error(codes.Internal, "could not get message")
+	}
+
+	logger.Info("message retrieved")
+	return &dmsV1.GetMessageResponse{Item: messageItem(message)}, nil
 }
 
 func (s *directMessageService) GetMessagesByUser(
 	ctx context.Context,
 	req *dmsV1.GetMessagesByUserRequest,
 ) (*dmsV1.GetMessagesByUserResponse, error) {
-	return &dmsV1.GetMessagesByUserResponse{}, nil
+	logger := s.cfg.logger.With("location", "GetMessagesByUser", "user_id", req.GetUserId())
+	userID, err := parseID(req.GetUserId(), "user ID")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.users.GetUserByID(ctx, userID); err != nil {
+		logger.Error("failed to get user", "error", err)
+		return nil, userLookupError(err)
+	}
+
+	metadata, err := s.store.GetMessagesByUser(ctx, userID)
+	if err != nil {
+		logger.Error("failed to get direct message metadata", "error", err)
+		return nil, status.Error(codes.Internal, "could not get direct messages")
+	}
+
+	logger.Info("direct message metadata retrieved", "count", len(metadata))
+	return &dmsV1.GetMessagesByUserResponse{
+		Items: messageMetadataItems(metadata),
+	}, nil
 }
 
 func (s *directMessageService) GetMessages(
 	ctx context.Context,
 	req *dmsV1.GetMessagesRequest,
 ) (*dmsV1.GetMessagesResponse, error) {
-	return &dmsV1.GetMessagesResponse{}, nil
+	item := req.GetItem()
+	if item == nil {
+		return nil, status.Error(codes.InvalidArgument, "DM is required")
+	}
+	dmID, err := parseID(item.GetDmId(), "DM ID")
+	if err != nil {
+		return nil, err
+	}
+	logger := s.cfg.logger.With("location", "GetMessages", "dm_id", dmID.String())
+
+	messages, err := s.store.GetMessages(ctx, dmID)
+	if err != nil {
+		logger.Error("failed to get messages", "error", err)
+		return nil, status.Error(codes.Internal, "could not get messages")
+	}
+
+	logger.Info("messages retrieved", "count", len(messages))
+	return &dmsV1.GetMessagesResponse{Items: messageItems(messages)}, nil
 }
 
 // Server side streaming, stream messages if user is online
@@ -134,4 +246,31 @@ func messageItem(msg db.DM) *dmsV1.DirectMessageItem {
 		ReceiverId: msg.ReceiverID.String(),
 		Content:    msg.Content,
 	}
+}
+
+func messageItems(messages []db.DM) []*dmsV1.DirectMessageItem {
+	items := make([]*dmsV1.DirectMessageItem, 0, len(messages))
+	for _, message := range messages {
+		items = append(items, messageItem(message))
+	}
+	return items
+}
+
+func messageMetadataItems(metadata []db.DMMetadata) []*dmsV1.DirectMessageMetadata {
+	items := make([]*dmsV1.DirectMessageMetadata, 0, len(metadata))
+	for _, item := range metadata {
+		items = append(items, &dmsV1.DirectMessageMetadata{
+			DmId:            item.ID.String(),
+			LastMessageTime: timestamppb.New(item.LastMessageTime),
+		})
+	}
+	return items
+}
+
+func parseID(value, name string) (gocql.UUID, error) {
+	id, err := gocql.ParseUUID(value)
+	if err != nil {
+		return gocql.UUID{}, status.Error(codes.InvalidArgument, "valid "+name+" is required")
+	}
+	return id, nil
 }

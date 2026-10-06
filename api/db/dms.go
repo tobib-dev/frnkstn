@@ -13,7 +13,7 @@ import (
 type DMStore interface {
 	SendMessage(context.Context, DM) error
 	GetMessages(context.Context, gocql.UUID) ([]DM, error)
-	GetMessagesByUser(context.Context, gocql.UUID) ([]DM, error)
+	GetMessagesByUser(context.Context, gocql.UUID) ([]DMMetadata, error)
 	GetMessage(context.Context, gocql.UUID, gocql.UUID) (DM, error)
 	SubscribeMessages(context.Context, MessageStreamParams) ([]DM, error)
 }
@@ -24,6 +24,12 @@ type DM struct {
 	AuthorID        gocql.UUID `db:"author_id"`
 	ReceiverID      gocql.UUID `db:"receiver_id"`
 	Content         string     `db:"content"`
+	LastMessageTime time.Time  `db:"last_message_time"`
+}
+
+type DMMetadata struct {
+	UserID          gocql.UUID `db:"user_id"`
+	ID              gocql.UUID `db:"id"`
 	LastMessageTime time.Time  `db:"last_message_time"`
 }
 
@@ -50,7 +56,7 @@ var dmByUserMetadata = table.Metadata{
 		"id",
 	},
 	PartKey: []string{"user_id"},
-	SortKey: []string{"last_message_time"},
+	SortKey: []string{"last_message_time", "id"},
 }
 
 var dmByUserTable = table.New(dmByUserMetadata)
@@ -142,15 +148,29 @@ func (db *DB) GetMessage(ctx context.Context, id, messageID gocql.UUID) (DM, err
 	return message, nil
 }
 
-func (db *DB) GetMessagesByUser(ctx context.Context, userID gocql.UUID) ([]DM, error) {
-	messages := []DM{}
+func (db *DB) GetMessagesByUser(ctx context.Context, userID gocql.UUID) ([]DMMetadata, error) {
+	refs := []DMMetadata{}
 	if err := db.Session.Query(dmByUserTable.Select()).
 		WithContext(ctx).
 		BindMap(qb.M{"user_id": userID}).
-		SelectRelease(&messages); err != nil {
+		SelectRelease(&refs); err != nil {
 		return nil, err
 	}
-	return messages, nil
+
+	return deduplicateDMMetadata(refs), nil
+}
+
+func deduplicateDMMetadata(refs []DMMetadata) []DMMetadata {
+	metadata := make([]DMMetadata, 0, len(refs))
+	seen := make(map[gocql.UUID]struct{}, len(refs))
+	for _, ref := range refs {
+		if _, ok := seen[ref.ID]; ok {
+			continue
+		}
+		seen[ref.ID] = struct{}{}
+		metadata = append(metadata, ref)
+	}
+	return metadata
 }
 
 func (db *DB) GetMessages(ctx context.Context, id gocql.UUID) ([]DM, error) {
