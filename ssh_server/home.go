@@ -47,6 +47,7 @@ const (
 	homeSigningOut
 	homeEditingProfile
 	homeAddingFriend
+	homeViewingMessages
 )
 
 type homeModel struct {
@@ -57,6 +58,7 @@ type homeModel struct {
 	user      userInfo
 	profile   profileModel
 	addFriend addFriendModel
+	messages  messagesModel
 }
 type SwitchToHomeMsg struct{}
 type signOutSuccessMsg struct{ quit bool }
@@ -72,12 +74,27 @@ func newHomeModel(width, height int) homeModel {
 }
 
 func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
+	if started, ok := msg.(messageStreamStartedMsg); ok && m.state != homeViewingMessages {
+		started.subscription.close()
+		return m, nil
+	}
 	if _, ok := msg.(signOutFailureMsg); ok {
 		m.state = homeReady
 		return m, m.list.NewStatusMessage("Sign out failed. Please try again.")
 	}
+	if m.state != homeViewingMessages {
+		switch msg.(type) {
+		case messagesLoadedMsg, messagesLoadFailedMsg, messageFriendsLoadedMsg, messageFriendsLoadFailedMsg:
+			var cmd tea.Cmd
+			m.messages, cmd = m.messages.Update(msg)
+			return m, cmd
+		}
+	}
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
 		m.list.SetSize(size.Width, size.Height)
+		if m.state == homeViewingMessages {
+			m.messages.setSize(size.Width, size.Height)
+		}
 		return m, nil
 	}
 	if m.state == homeSigningOut {
@@ -123,6 +140,23 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		m.addFriend, cmd = m.addFriend.Update(msg)
 		return m, cmd
 	}
+	if m.state == homeViewingMessages {
+		if key, ok := msg.(tea.KeyPressMsg); ok {
+			switch key.String() {
+			case "esc":
+				if m.messages.state == messagesBrowsing {
+					m.state = homeReady
+					return m, nil
+				}
+			case "ctrl+c":
+				m.messages.stopSubscription()
+				return m.signOut(true)
+			}
+		}
+		var cmd tea.Cmd
+		m.messages, cmd = m.messages.Update(msg)
+		return m, cmd
+	}
 	if m.state == homeEditingProfile {
 		if key, ok := msg.(tea.KeyPressMsg); ok && !m.profile.saving {
 			switch key.String() {
@@ -145,6 +179,13 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 	}
 	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "enter" {
 		switch m.list.SelectedItem().(homeItem) {
+		case messagesHomeItem:
+			m.state = homeViewingMessages
+			if m.messages.userID == "" {
+				m.messages = newMessagesModel(m.list.Width(), m.list.Height(), m.user.userID, m.grpcPort)
+				return m, fetchMessagesByUser(m.user.userID, m.grpcPort)
+			}
+			return m, nil
 		case addFriendHomeItem:
 			m.state = homeAddingFriend
 			m.addFriend = newAddFriendModel(m.user.userID, m.grpcPort)
@@ -194,6 +235,9 @@ func (m homeModel) View() tea.View {
 	}
 	if m.state == homeAddingFriend {
 		return tea.NewView(lipgloss.NewStyle().Margin(2).Render(m.addFriend.View()))
+	}
+	if m.state == homeViewingMessages {
+		return tea.NewView(lipgloss.NewStyle().Margin(2).Render(m.messages.View()))
 	}
 	if m.state == homeSigningOut {
 		return tea.NewView(lipgloss.NewStyle().Margin(2).Render("Signing out…"))

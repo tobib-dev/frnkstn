@@ -129,6 +129,10 @@ func (m mainModel) Init() tea.Cmd {
 }
 
 func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if started, ok := msg.(messageStreamStartedMsg); ok && m.state != homeView {
+		started.subscription.close()
+		return m, nil
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -141,7 +145,13 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.home.session = m.signIn.session
 		m.home.user = m.signIn.user
 		m.home.grpcPort = m.signIn.grpcPort
-		return m, m.home.list.NewStatusMessage("Sign in successful")
+		m.home.messages = newMessagesModel(m.width, m.height, m.home.user.userID, m.home.grpcPort)
+		m.home.messages.loadingFriends = true
+		return m, tea.Batch(
+			m.home.list.NewStatusMessage("Sign in successful"),
+			fetchMessagesByUser(m.home.user.userID, m.home.grpcPort),
+			fetchMessageFriends(m.home.user.userID, m.home.grpcPort),
+		)
 
 	case profileUpdatedMsg:
 		if m.state == homeView && m.home.state == homeEditingProfile {
