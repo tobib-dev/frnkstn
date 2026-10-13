@@ -34,13 +34,15 @@ func (s *messagesTestServer) GetMessagesByUser(_ context.Context, req *dmsv1.Get
 }
 
 func (s *messagesTestServer) GetFriends(_ context.Context, req *friendsv1.GetFriendsRequest) (*friendsv1.GetFriendsResponse, error) {
-	return &friendsv1.GetFriendsResponse{Items: []*friendsv1.GetFriendsItem{{
-		UserId: req.GetUserId(), FriendshipId: "new-friendship", FriendId: "friend", FriendUsername: "bob", Status: "accepted",
-	}}}, nil
+	return &friendsv1.GetFriendsResponse{Items: []*friendsv1.GetFriendsItem{
+		{UserId: req.GetUserId(), FriendshipId: "new-friendship", FriendId: "friend", FriendUsername: "bob", Status: "accepted"},
+		{UserId: req.GetUserId(), FriendshipId: "existing-friendship", FriendId: "existing-friend", FriendUsername: "alice", Status: "accepted"},
+	}}, nil
 }
 
 func (s *messagesTestServer) SendMessages(_ context.Context, req *dmsv1.SendMessagesRequest) (*dmsv1.SendMessagesResponse, error) {
 	s.sent = req.GetItem()
+	s.sent.MessageId = gocql.TimeUUID().String()
 	return &dmsv1.SendMessagesResponse{Item: req.GetItem()}, nil
 }
 
@@ -100,9 +102,18 @@ func TestMessagesOptionLoadsMetadataAndStartsMessage(t *testing.T) {
 	if cmd == nil || home.messages.state != messagesSending {
 		t.Fatal("message was not submitted")
 	}
-	home, _ = home.Update(cmd())
+	home, cmd = home.Update(cmd())
 	if service.sent == nil || service.sent.GetDmId() != "new-friendship" || service.sent.GetAuthorId() != "user" || service.sent.GetReceiverId() != "friend" || service.sent.GetContent() != "hello" {
 		t.Fatalf("unexpected sent message: %+v", service.sent)
+	}
+	home, _ = home.Update(cmd())
+	home.messages.list.Select(0)
+	home, cmd = home.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	home, _ = home.Update(cmd())
+	home.messages.friends.Select(1)
+	home, cmd = home.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil || home.messages.state != messagesViewingConversation || home.messages.selectedDM.GetDmId() != "existing-friendship" {
+		t.Fatal("selecting an existing friend did not open the previous conversation")
 	}
 }
 
@@ -120,7 +131,7 @@ func TestOpeningConversationDisplaysHistoryAndIncomingMessage(t *testing.T) {
 
 	model := newMessagesModel(80, 24, "user", port)
 	model, _ = model.Update(messageFriendsLoadedMsg{items: []*friendsv1.GetFriendsItem{{
-		FriendshipId: "friendship", FriendUsername: "bob", Status: "accepted",
+		UserId: "user", FriendshipId: "friendship", FriendId: "friend", FriendUsername: "bob", Status: "accepted",
 	}}})
 	model, _ = model.Update(messagesLoadedMsg{items: []*dmsv1.DirectMessageMetadata{{
 		DmId: "friendship", LastMessageTime: timestamppb.New(time.Unix(1, 0)),
@@ -152,13 +163,26 @@ func TestOpeningConversationDisplaysHistoryAndIncomingMessage(t *testing.T) {
 	}
 
 	view := model.View()
-	for _, text := range []string{"Conversation with bob", "You: hello from me", "bob: hello from them", "bob: live message"} {
+	for _, text := range []string{"Conversation with bob", "You: hello from me •", "bob: hello from them •", "bob: live message •"} {
 		if !strings.Contains(view, text) {
 			t.Fatalf("conversation view missing %q: %q", text, view)
 		}
 	}
-	if strings.Count(view, " • ") != 3 {
-		t.Fatalf("conversation messages are missing sent times: %q", view)
+	if !strings.Contains(view, "Message: ") {
+		t.Fatalf("conversation is missing the reply input: %q", view)
+	}
+
+	model.input.SetValue("reply from conversation")
+	model, cmd = model.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil || !model.sending || model.state != messagesViewingConversation {
+		t.Fatal("conversation reply was not submitted")
+	}
+	model, _ = model.Update(cmd())
+	if model.sending || model.state != messagesViewingConversation || model.input.Value() != "" || service.sent.GetDmId() != "friendship" {
+		t.Fatal("conversation reply did not complete in the open thread")
+	}
+	if !strings.Contains(model.View(), "You: reply from conversation") {
+		t.Fatal("sent conversation reply was not displayed")
 	}
 	model, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if model.state != messagesBrowsing || model.subscription != nil {

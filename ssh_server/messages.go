@@ -35,8 +35,15 @@ type messagesLoadedMsg struct {
 type messagesLoadFailedMsg struct{ err error }
 type messageFriendsLoadedMsg struct{ items []*friendsv1.GetFriendsItem }
 type messageFriendsLoadFailedMsg struct{ err error }
-type messageSentMsg struct{}
-type messageSendFailedMsg struct{ err error }
+type messageSentMsg struct {
+	item    *dmsv1.DirectMessageItem
+	ongoing bool
+}
+type messageSendFailedMsg struct {
+	dmID    string
+	err     error
+	ongoing bool
+}
 type conversationLoadedMsg struct {
 	dmID   string
 	items  []*dmsv1.DirectMessageItem
@@ -137,6 +144,8 @@ type messagesModel struct {
 	subscription     *messageSubscription
 	metadata         []*dmsv1.DirectMessageMetadata
 	friendNames      map[string]string
+	friendsByDM      map[string]*friendsv1.GetFriendsItem
+	sending          bool
 	errorText        string
 }
 
@@ -151,7 +160,7 @@ func newMessagesModel(width, height int, userID, grpcPort string) messagesModel 
 	input.SetVirtualCursor(true)
 	return messagesModel{
 		list: messages, friends: friends, input: input, userID: userID, grpcPort: grpcPort,
-		loading: true, friendNames: make(map[string]string),
+		loading: true, friendNames: make(map[string]string), friendsByDM: make(map[string]*friendsv1.GetFriendsItem),
 	}
 }
 
@@ -174,12 +183,14 @@ func (m messagesModel) Update(msg tea.Msg) (messagesModel, tea.Cmd) {
 	case messageFriendsLoadedMsg:
 		m.loadingFriends = false
 		m.friendNames = make(map[string]string)
+		m.friendsByDM = make(map[string]*friendsv1.GetFriendsItem)
 		items := make([]list.Item, 0, len(msg.items))
 		for _, item := range msg.items {
 			if item.GetStatus() == "accepted" {
 				friend := messageFriendItem{friend: item, userID: m.userID}
 				items = append(items, friend)
 				m.friendNames[item.GetFriendshipId()] = friend.Title()
+				m.friendsByDM[item.GetFriendshipId()] = item
 			}
 		}
 		m.friends.SetItems(items)
@@ -189,6 +200,19 @@ func (m messagesModel) Update(msg tea.Msg) (messagesModel, tea.Cmd) {
 		m.errorText = "Could not load friends."
 		return m, nil
 	case messageSentMsg:
+		if msg.ongoing {
+			if m.isViewing(msg.item.GetDmId()) {
+				m.sending = false
+				m.errorText = ""
+				m.input.Reset()
+				m.conversation = appendMessage(m.conversation, msg.item)
+				if cursor, ok := messageTime(msg.item); ok {
+					m.setLastMessageTime(msg.item.GetDmId(), cursor)
+				}
+				return m, m.input.Focus()
+			}
+			return m, nil
+		}
 		m.state = messagesBrowsing
 		m.selectedFriend = nil
 		m.input.Reset()
@@ -196,6 +220,14 @@ func (m messagesModel) Update(msg tea.Msg) (messagesModel, tea.Cmd) {
 		m.errorText = "Message sent."
 		return m, fetchMessagesByUser(m.userID, m.grpcPort)
 	case messageSendFailedMsg:
+		if msg.ongoing {
+			if m.isViewing(msg.dmID) {
+				m.sending = false
+				m.errorText = "Could not send message. Please try again."
+				return m, m.input.Focus()
+			}
+			return m, nil
+		}
 		m.state = messagesComposing
 		m.errorText = "Could not send message. Please try again."
 		return m, m.input.Focus()
@@ -257,12 +289,7 @@ func (m messagesModel) Update(msg tea.Msg) (messagesModel, tea.Cmd) {
 				return m, fetchMessageFriends(m.userID, m.grpcPort)
 			}
 			if item, ok := m.list.SelectedItem().(directMessageListItem); ok {
-				m.state = messagesViewingConversation
-				m.selectedDM = item.metadata
-				m.conversation = nil
-				m.loading = true
-				m.errorText = ""
-				return m, fetchConversation(item.metadata.GetDmId(), m.grpcPort)
+				return m.openConversation(item.metadata)
 			}
 		}
 		var cmd tea.Cmd
@@ -277,6 +304,9 @@ func (m messagesModel) Update(msg tea.Msg) (messagesModel, tea.Cmd) {
 				return m, nil
 			case "enter":
 				if item, ok := m.friends.SelectedItem().(messageFriendItem); ok && !m.loadingFriends {
+					if metadata := m.metadataForDM(item.friend.GetFriendshipId()); metadata != nil {
+						return m.openConversation(metadata)
+					}
 					m.selectedFriend = item.friend
 					m.state = messagesComposing
 					m.errorText = ""
@@ -305,22 +335,51 @@ func (m messagesModel) Update(msg tea.Msg) (messagesModel, tea.Cmd) {
 				m.state = messagesSending
 				m.errorText = ""
 				m.input.Blur()
-				return m, sendDirectMessage(m.userID, m.grpcPort, friend, content)
+				return m, sendDirectMessage(m.userID, m.grpcPort, friend, content, false)
 			}
 		}
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		return m, cmd
 	case messagesViewingConversation:
-		if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "esc" {
-			m.stopSubscription()
-			m.state = messagesBrowsing
-			m.selectedDM = nil
-			m.conversation = nil
-			m.loading = false
-			m.errorText = ""
+		if key, ok := msg.(tea.KeyPressMsg); ok {
+			switch key.String() {
+			case "esc":
+				if m.sending {
+					return m, nil
+				}
+				m.stopSubscription()
+				m.input.Blur()
+				m.input.Reset()
+				m.state = messagesBrowsing
+				m.selectedDM = nil
+				m.conversation = nil
+				m.loading = false
+				m.errorText = ""
+				return m, nil
+			case "enter":
+				if m.loading || m.sending {
+					return m, nil
+				}
+				content := strings.TrimSpace(m.input.Value())
+				if content == "" {
+					m.errorText = "Message is required."
+					return m, nil
+				}
+				friend := m.friendsByDM[m.selectedDM.GetDmId()]
+				if friend == nil {
+					m.errorText = "Could not find this friend."
+					return m, nil
+				}
+				m.sending = true
+				m.errorText = ""
+				m.input.Blur()
+				return m, sendDirectMessage(m.userID, m.grpcPort, friend, content, true)
+			}
 		}
-		return m, nil
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		return m, cmd
 	}
 	return m, nil
 }
@@ -376,7 +435,11 @@ func (m messagesModel) View() string {
 		if m.errorText != "" {
 			view += "\n" + m.errorText
 		}
-		return view + "\n\nEsc to return to messages"
+		view += "\n" + m.input.View()
+		if m.sending {
+			view += "\nSending…"
+		}
+		return view + "\n\nEnter to send • Esc to return to messages"
 	default:
 		view := m.list.View()
 		if m.loading {
@@ -387,6 +450,27 @@ func (m messagesModel) View() string {
 		}
 		return view + "\n\nEsc to return home"
 	}
+}
+
+func (m messagesModel) metadataForDM(dmID string) *dmsv1.DirectMessageMetadata {
+	for _, metadata := range m.metadata {
+		if metadata.GetDmId() == dmID {
+			return metadata
+		}
+	}
+	return nil
+}
+
+func (m messagesModel) openConversation(metadata *dmsv1.DirectMessageMetadata) (messagesModel, tea.Cmd) {
+	m.state = messagesViewingConversation
+	m.selectedDM = metadata
+	m.conversation = nil
+	m.loading = true
+	m.sending = false
+	m.errorText = ""
+	m.input.Reset()
+	m.input.Focus()
+	return m, fetchConversation(metadata.GetDmId(), m.grpcPort)
 }
 
 func (m *messagesModel) setMessageItems() tea.Cmd {
@@ -449,10 +533,10 @@ func fetchMessageFriends(userID, grpcPort string) tea.Cmd {
 	}
 }
 
-func sendDirectMessage(userID, grpcPort string, friend *friendsv1.GetFriendsItem, content string) tea.Cmd {
+func sendDirectMessage(userID, grpcPort string, friend *friendsv1.GetFriendsItem, content string, ongoing bool) tea.Cmd {
 	return func() tea.Msg {
 		if friend == nil {
-			return messageSendFailedMsg{err: fmt.Errorf("friend is required")}
+			return messageSendFailedMsg{err: fmt.Errorf("friend is required"), ongoing: ongoing}
 		}
 		receiverID := friend.GetFriendId()
 		if friend.GetUserId() != userID {
@@ -460,18 +544,21 @@ func sendDirectMessage(userID, grpcPort string, friend *friendsv1.GetFriendsItem
 		}
 		conn, err := grpc.NewClient("localhost:"+grpcPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		if err != nil {
-			return messageSendFailedMsg{err: err}
+			return messageSendFailedMsg{dmID: friend.GetFriendshipId(), err: err, ongoing: ongoing}
 		}
 		defer conn.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
 		defer cancel()
-		_, err = dmsv1.NewDMServiceClient(conn).SendMessages(ctx, &dmsv1.SendMessagesRequest{Item: &dmsv1.DirectMessageItem{
+		response, err := dmsv1.NewDMServiceClient(conn).SendMessages(ctx, &dmsv1.SendMessagesRequest{Item: &dmsv1.DirectMessageItem{
 			DmId: friend.GetFriendshipId(), AuthorId: userID, ReceiverId: receiverID, Content: content,
 		}})
 		if err != nil {
-			return messageSendFailedMsg{err: err}
+			return messageSendFailedMsg{dmID: friend.GetFriendshipId(), err: err, ongoing: ongoing}
 		}
-		return messageSentMsg{}
+		if response.GetItem() == nil {
+			return messageSendFailedMsg{dmID: friend.GetFriendshipId(), err: fmt.Errorf("sent message is missing"), ongoing: ongoing}
+		}
+		return messageSentMsg{item: response.GetItem(), ongoing: ongoing}
 	}
 }
 
