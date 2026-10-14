@@ -4,6 +4,9 @@ ssh_server/tui
 /api/api
 /api/frnkstn
 
+# logs
+*.log
+
 # Local development against sibling modules.
 go.work
 go.work.sum

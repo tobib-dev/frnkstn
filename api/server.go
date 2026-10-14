@@ -60,10 +60,11 @@ func main() {
 	defer lis.Close()
 
 	// Initialize logger
-	logger, err := initializeLogger(logFile)
+	logger, logfile, err := initializeLogger(logFile)
 	if err != nil {
 		log.Fatalf("failed to initialize logger: %v", err)
 	}
+	defer logfile.Close()
 	cfg.logger = logger
 
 	// Start DB connection pool
