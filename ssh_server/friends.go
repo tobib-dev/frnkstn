@@ -9,9 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	friendsv1 "github.com/tobib-dev/frnkstn-proto/friends/v1"
 	usersv1 "github.com/tobib-dev/frnkstn-proto/users/v1"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
 
@@ -248,7 +246,7 @@ func (m addFriendModel) View() string {
 
 func fetchPendingFriendRequests(userID, grpcPort string) tea.Cmd {
 	return func() tea.Msg {
-		conn, err := grpc.NewClient("localhost:"+grpcPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err := newGRPCClient("localhost:" + grpcPort)
 		if err != nil {
 			return pendingFriendRequestsFailedMsg{err: err}
 		}
@@ -264,7 +262,7 @@ func fetchPendingFriendRequests(userID, grpcPort string) tea.Cmd {
 }
 
 func addFriend(userID, username, grpcPort string) error {
-	conn, err := grpc.NewClient("localhost:"+grpcPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := newGRPCClient("localhost:" + grpcPort)
 	if err != nil {
 		return err
 	}
@@ -286,7 +284,7 @@ func addFriend(userID, username, grpcPort string) error {
 }
 
 func resolveFriendRequest(userID, grpcPort string, request *friendsv1.GetFriendsItem, action friendRequestAction) error {
-	conn, err := grpc.NewClient("localhost:"+grpcPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := newGRPCClient("localhost:" + grpcPort)
 	if err != nil {
 		return err
 	}

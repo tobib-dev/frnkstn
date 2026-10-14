@@ -8,8 +8,6 @@ import (
 	"charm.land/log/v2"
 	usersV1 "github.com/tobib-dev/frnkstn-proto/users/v1"
 	github "github.com/tobib-dev/frnkstn/internal/github"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 type userInfo struct {
@@ -22,7 +20,7 @@ type userInfo struct {
 func getUser(githubID int64, grpcPort string) (userInfo, error) {
 	log.Info("getUser", "github_id", githubID)
 
-	conn, err := grpc.NewClient("localhost:"+grpcPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := newGRPCClient("localhost:" + grpcPort)
 	if err != nil {
 		return userInfo{}, err
 	}
@@ -41,7 +39,7 @@ func getUser(githubID int64, grpcPort string) (userInfo, error) {
 
 func createUser(name, username string, identity github.User, grpcPort string) (string, error) {
 	log.Info("creating user", "github_user_id", identity)
-	conn, err := grpc.NewClient("localhost:"+grpcPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := newGRPCClient("localhost:" + grpcPort)
 	if err != nil {
 		return "", err
 	}
@@ -72,7 +70,7 @@ func updateUser(user userInfo, grpcPort string) (userInfo, error) {
 	if user.userID == "" {
 		return userInfo{}, fmt.Errorf("cannot update profile without user ID")
 	}
-	conn, err := grpc.NewClient("localhost:"+grpcPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := newGRPCClient("localhost:" + grpcPort)
 	if err != nil {
 		return userInfo{}, err
 	}
@@ -93,7 +91,7 @@ func deleteUser(userID, grpcPort string) error {
 	if userID == "" {
 		return fmt.Errorf("cannot delete account without user ID")
 	}
-	conn, err := grpc.NewClient("localhost:"+grpcPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := newGRPCClient("localhost:" + grpcPort)
 	if err != nil {
 		return err
 	}

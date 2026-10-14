@@ -15,6 +15,7 @@ import (
 	usersV1 "github.com/tobib-dev/frnkstn-proto/users/v1"
 
 	"github.com/tobib-dev/frnkstn/api/db"
+	"github.com/tobib-dev/frnkstn/internal/rpclog"
 
 	"github.com/joho/godotenv"
 	"google.golang.org/grpc"
@@ -84,7 +85,7 @@ func main() {
 		session: *db,
 	}
 
-	server := grpc.NewServer()
+	server := grpc.NewServer(grpc.StatsHandler(rpclog.Handler{Message: "api request completed", Log: logger.Info}))
 
 	// Inject DB into services and register services
 	userService := NewUserService(&cfg)

@@ -15,7 +15,6 @@ import (
 	dmsv1 "github.com/tobib-dev/frnkstn-proto/dms/v1"
 	friendsv1 "github.com/tobib-dev/frnkstn-proto/friends/v1"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -501,7 +500,7 @@ func (m *messagesModel) setLastMessageTime(dmID string, cursor time.Time) {
 
 func fetchMessagesByUser(userID, grpcPort string) tea.Cmd {
 	return func() tea.Msg {
-		conn, err := grpc.NewClient("localhost:"+grpcPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err := newGRPCClient("localhost:" + grpcPort)
 		if err != nil {
 			return messagesLoadFailedMsg{err: err}
 		}
@@ -518,7 +517,7 @@ func fetchMessagesByUser(userID, grpcPort string) tea.Cmd {
 
 func fetchMessageFriends(userID, grpcPort string) tea.Cmd {
 	return func() tea.Msg {
-		conn, err := grpc.NewClient("localhost:"+grpcPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err := newGRPCClient("localhost:" + grpcPort)
 		if err != nil {
 			return messageFriendsLoadFailedMsg{err: err}
 		}
@@ -542,7 +541,7 @@ func sendDirectMessage(userID, grpcPort string, friend *friendsv1.GetFriendsItem
 		if friend.GetUserId() != userID {
 			receiverID = friend.GetUserId()
 		}
-		conn, err := grpc.NewClient("localhost:"+grpcPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err := newGRPCClient("localhost:" + grpcPort)
 		if err != nil {
 			return messageSendFailedMsg{dmID: friend.GetFriendshipId(), err: err, ongoing: ongoing}
 		}
@@ -565,7 +564,7 @@ func sendDirectMessage(userID, grpcPort string, friend *friendsv1.GetFriendsItem
 func fetchConversation(dmID, grpcPort string) tea.Cmd {
 	return func() tea.Msg {
 		cursor := time.Now()
-		conn, err := grpc.NewClient("localhost:"+grpcPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err := newGRPCClient("localhost:" + grpcPort)
 		if err != nil {
 			return conversationLoadFailedMsg{dmID: dmID, err: err}
 		}
@@ -600,7 +599,7 @@ func startMessageStream(grpcPort string, metadata *dmsv1.DirectMessageMetadata) 
 		if err := msgTime.CheckValid(); err != nil {
 			return messageStreamFailedMsg{dmID: dmID, err: fmt.Errorf("invalid last message time: %w", err)}
 		}
-		conn, err := grpc.NewClient("localhost:"+grpcPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err := newGRPCClient("localhost:" + grpcPort)
 		if err != nil {
 			return messageStreamFailedMsg{dmID: dmID, err: err}
 		}

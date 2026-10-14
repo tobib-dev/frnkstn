@@ -7,9 +7,6 @@ import (
 	"time"
 
 	sessionsV1 "github.com/tobib-dev/frnkstn-proto/sessions/v1"
-
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 type sessionInfo struct {
@@ -23,7 +20,7 @@ func createSession(token tokenInfo, userID, grpcPort string) (sessionInfo, error
 		return sessionInfo{}, fmt.Errorf("cannot create session without user ID")
 	}
 	grpcHost := "localhost:" + grpcPort
-	conn, err := grpc.NewClient(grpcHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := newGRPCClient(grpcHost)
 	if err != nil {
 		return sessionInfo{}, fmt.Errorf("failed to connect to grpc server: %w", err)
 	}
@@ -55,7 +52,7 @@ func createSession(token tokenInfo, userID, grpcPort string) (sessionInfo, error
 
 func getSession(sessionID, grpcPort string) (sessionInfo, error) {
 	grpcHost := "localhost:" + grpcPort
-	conn, err := grpc.NewClient(grpcHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := newGRPCClient(grpcHost)
 	if err != nil {
 		return sessionInfo{}, fmt.Errorf("failed to connect to grpc server: %w", err)
 	}
@@ -90,7 +87,7 @@ func updateSession(sessionID, userID, grpcPort string) (sessionInfo, error) {
 		return sessionInfo{}, fmt.Errorf("cannot sign out without session ID and user ID")
 	}
 	grpcHost := "localhost:" + grpcPort
-	conn, err := grpc.NewClient(grpcHost, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := newGRPCClient(grpcHost)
 	if err != nil {
 		return sessionInfo{}, fmt.Errorf("failed to connect to grpc server: %w", err)
 	}
