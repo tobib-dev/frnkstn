@@ -8,11 +8,13 @@ import (
 	"github.com/scylladb/gocqlx/v3/table"
 )
 
-type NoficationStore interface {
+type NotificationStore interface {
 	AddMessageNotification(context.Context, MessageNotification) error
 	GetMessageNotification(context.Context, gocql.UUID) ([]MessageNotification, error)
+	UpdateMessageNotification(context.Context, gocql.UUID, gocql.UUID) error
 	AddFriendNotification(context.Context, FriendNotification) error
 	GetFriendNotification(context.Context, gocql.UUID) ([]FriendNotification, error)
+	UpdateFriendNotification(context.Context, gocql.UUID, gocql.UUID) error
 }
 
 type MessageNotification struct {
@@ -90,6 +92,27 @@ func (db *DB) GetMessageNotification(ctx context.Context, userID gocql.UUID) ([]
 	return notifications, nil
 }
 
+func (db *DB) UpdateMessageNotification(ctx context.Context, userID, notificationID gocql.UUID) error {
+	notification := MessageNotification{UserID: userID, NotificationID: notificationID}
+	if err := db.Session.Query(msgN10nTable.Get()).
+		WithContext(ctx).
+		BindStruct(notification).
+		GetRelease(&notification); err != nil {
+		return err
+	}
+
+	// shortcut: reinserting resets the table TTL; preserve remaining TTL if exact expiry matters.
+	batch := db.Session.ContextBatch(ctx, gocql.LoggedBatch)
+	if err := batch.BindStruct(msgN10nTable.DeleteQuery(*db.Session), notification); err != nil {
+		return err
+	}
+	notification.Seen = true
+	if err := batch.BindStruct(msgN10nTable.InsertQuery(*db.Session), notification); err != nil {
+		return err
+	}
+	return db.Session.ExecuteBatch(batch)
+}
+
 func (db *DB) AddFriendNotification(ctx context.Context, friendN10n FriendNotification) error {
 	query := db.Session.Query(friendN10nTable.Insert()).
 		WithContext(ctx).
@@ -109,4 +132,25 @@ func (db *DB) GetFriendNotification(ctx context.Context, userID gocql.UUID) ([]F
 		return nil, err
 	}
 	return nots, nil
+}
+
+func (db *DB) UpdateFriendNotification(ctx context.Context, userID, notificationID gocql.UUID) error {
+	notification := FriendNotification{UserID: userID, NotificationID: notificationID}
+	if err := db.Session.Query(friendN10nTable.Get()).
+		WithContext(ctx).
+		BindStruct(notification).
+		GetRelease(&notification); err != nil {
+		return err
+	}
+
+	// shortcut: reinserting resets the table TTL; preserve remaining TTL if exact expiry matters.
+	batch := db.Session.ContextBatch(ctx, gocql.LoggedBatch)
+	if err := batch.BindStruct(friendN10nTable.DeleteQuery(*db.Session), notification); err != nil {
+		return err
+	}
+	notification.Seen = true
+	if err := batch.BindStruct(friendN10nTable.InsertQuery(*db.Session), notification); err != nil {
+		return err
+	}
+	return db.Session.ExecuteBatch(batch)
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/gocql/gocql"
 	friendsv1 "github.com/tobib-dev/frnkstn-proto/friends/v1"
+	ntfnV1 "github.com/tobib-dev/frnkstn-proto/notifications/v1"
 	"github.com/tobib-dev/frnkstn/api/db"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -15,11 +16,12 @@ type FriendService struct {
 	cfg   *Config
 	store db.FriendStore
 	users db.UserStore
+	n10n  *notificationService
 	friendsv1.UnimplementedFriendServiceServer
 }
 
 func NewFriendService(cfg *Config) *FriendService {
-	return &FriendService{cfg: cfg, store: &cfg.db.session, users: &cfg.db.session}
+	return &FriendService{cfg: cfg, store: &cfg.db.session, users: &cfg.db.session, n10n: NewNotificationService(cfg)}
 }
 
 func (s *FriendService) AddFriend(ctx context.Context, req *friendsv1.AddFriendRequest) (*friendsv1.AddFriendResponse, error) {
@@ -51,6 +53,15 @@ func (s *FriendService) AddFriend(ctx context.Context, req *friendsv1.AddFriendR
 	if err != nil {
 		logger.Error("failed to add friend", "error", err, "friendship_id", friendship.ID)
 		return nil, status.Error(codes.Internal, "could not add friend")
+	}
+	if _, err := s.n10n.AddFriendN10N(ctx, &ntfnV1.AddFriendN10NRequest{Item: &ntfnV1.FriendN10NItem{
+		UserId:       friendship.FriendID.String(),
+		FriendshipId: friendship.ID.String(),
+		FriendId:     friendship.UserID.String(),
+		FriendName:   user.Username,
+		Status:       friendship.Status,
+	}}); err != nil {
+		logger.Error("failed to add friend notification", "error", err, "friendship_id", friendship.ID)
 	}
 	logger.Info("friend added", "friendship_id", friendship.ID, "status", friendship.Status)
 	return &friendsv1.AddFriendResponse{FriendshipId: friendship.ID.String(), FriendId: friendship.FriendID.String(), Status: friendship.Status}, nil

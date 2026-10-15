@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
 
@@ -138,7 +139,9 @@ func TestAddFriendGeneratesTimeUUIDOnServer(t *testing.T) {
 		friendID: {ID: friendID, Username: "bob"},
 	}}
 	store := &testFriendStore{}
-	service := &FriendService{cfg: &Config{logger: slog.Default()}, store: store, users: users}
+	notifications := &testNotificationStore{}
+	cfg := &Config{logger: slog.Default()}
+	service := &FriendService{cfg: cfg, store: store, users: users, n10n: &notificationService{cfg: cfg, store: notifications}}
 
 	response, err := service.AddFriend(context.Background(), &friendsv1.AddFriendRequest{UserId: userID.String(), FriendId: friendID.String()})
 	if err != nil {
@@ -149,5 +152,13 @@ func TestAddFriendGeneratesTimeUUIDOnServer(t *testing.T) {
 	}
 	if response.FriendshipId != store.friend.ID.String() || response.Status != "pending" || store.friend.FriendName != "bob" || store.addedUserName != "alice" {
 		t.Fatalf("unexpected response or stored friend: response=%+v friend=%+v", response, store.friend)
+	}
+	if notification := notifications.friend; notification.UserID != friendID || notification.FriendshipID != store.friend.ID || notification.FriendID != userID || notification.FriendName != "alice" || notification.Status != "pending" {
+		t.Fatalf("unexpected friend notification: %+v", notification)
+	}
+
+	notifications.friendErr = errors.New("notification unavailable")
+	if _, err := service.AddFriend(context.Background(), &friendsv1.AddFriendRequest{UserId: userID.String(), FriendId: friendID.String()}); err != nil {
+		t.Fatalf("notification failure changed successful friend request: %v", err)
 	}
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
 	"time"
@@ -50,12 +51,14 @@ func (s *testDMStore) SubscribeMessages(context.Context, db.MessageStreamParams)
 func TestSendMessagesGeneratesMessageID(t *testing.T) {
 	dmID, authorID, receiverID := gocql.TimeUUID(), gocql.TimeUUID(), gocql.TimeUUID()
 	store := &testDMStore{}
+	notifications := &testNotificationStore{}
 	users := &testUserStore{users: map[gocql.UUID]db.User{
-		authorID:   {ID: authorID},
+		authorID:   {ID: authorID, Username: "alice"},
 		receiverID: {ID: receiverID},
 	}}
 	friends := &testFriendStore{friend: db.Friend{ID: dmID, UserID: authorID, FriendID: receiverID, Status: "accepted"}}
-	service := &directMessageService{cfg: &Config{logger: slog.Default()}, store: store, users: users, friends: friends}
+	cfg := &Config{logger: slog.Default()}
+	service := &directMessageService{cfg: cfg, store: store, users: users, friends: friends, n10n: &notificationService{cfg: cfg, store: notifications}}
 
 	response, err := service.SendMessages(context.Background(), &dmsV1.SendMessagesRequest{Item: &dmsV1.DirectMessageItem{
 		DmId: dmID.String(), AuthorId: authorID.String(), ReceiverId: receiverID.String(), Content: " hello ", MessageId: "ignored",
@@ -68,6 +71,16 @@ func TestSendMessagesGeneratesMessageID(t *testing.T) {
 	}
 	if store.sent.ID != dmID || store.sent.AuthorID != authorID || store.sent.ReceiverID != receiverID || store.sent.Content != "hello" {
 		t.Fatalf("unexpected stored message: %+v", store.sent)
+	}
+	if notification := notifications.message; notification.MessageID != store.sent.MessageID || notification.UserID != receiverID || notification.AuthorID != authorID || notification.AuthorName != "alice" || notification.Content != "hello" {
+		t.Fatalf("unexpected message notification: %+v", notification)
+	}
+
+	notifications.messageErr = errors.New("notification unavailable")
+	if _, err := service.SendMessages(context.Background(), &dmsV1.SendMessagesRequest{Item: &dmsV1.DirectMessageItem{
+		DmId: dmID.String(), AuthorId: authorID.String(), ReceiverId: receiverID.String(), Content: "still sent",
+	}}); err != nil {
+		t.Fatalf("notification failure changed successful message send: %v", err)
 	}
 }
 

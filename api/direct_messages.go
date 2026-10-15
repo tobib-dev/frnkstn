@@ -8,6 +8,7 @@ import (
 
 	"github.com/gocql/gocql"
 	dmsV1 "github.com/tobib-dev/frnkstn-proto/dms/v1"
+	ntfnV1 "github.com/tobib-dev/frnkstn-proto/notifications/v1"
 	"github.com/tobib-dev/frnkstn/api/db"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -20,6 +21,7 @@ type directMessageService struct {
 	store   db.DMStore
 	users   db.UserStore
 	friends db.FriendStore
+	n10n    *notificationService
 	dmsV1.UnimplementedDMServiceServer
 }
 
@@ -29,6 +31,7 @@ func NewDMService(cfg *Config) *directMessageService {
 		store:   &cfg.db.session,
 		users:   &cfg.db.session,
 		friends: &cfg.db.session,
+		n10n:    NewNotificationService(cfg),
 	}
 }
 
@@ -99,6 +102,18 @@ func (s *directMessageService) SendMessages(
 	if err := s.store.SendMessage(ctx, message); err != nil {
 		logger.Error("failed to send message", "message_id", messageID.String(), "error", err)
 		return nil, status.Error(codes.Internal, "could not send message")
+	}
+	author, err := s.users.GetUserByID(ctx, authorID)
+	if err != nil {
+		logger.Error("failed to get message author for notification", "message_id", messageID.String(), "error", err)
+	} else if _, err := s.n10n.AddMsgN10N(ctx, &ntfnV1.AddMsgN10NRequest{Item: &ntfnV1.MsgN10NItem{
+		MessageId:  messageID.String(),
+		UserId:     receiverID.String(),
+		AuthorId:   authorID.String(),
+		AuthorName: author.Username,
+		Content:    content,
+	}}); err != nil {
+		logger.Error("failed to add message notification", "message_id", messageID.String(), "error", err)
 	}
 
 	logger.Info("message sent", "message_id", messageID.String())
