@@ -211,8 +211,8 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 			return m, m.addFriend.input.Focus()
 		case notificationsHomeItem:
 			m.state = homeViewingNotifications
-			m.notifications = newNotificationsModel(m.user.userID, m.grpcPort)
-			return m, fetchNotifications(m.user.userID, m.grpcPort)
+			m.notifications = newNotificationsModel(m.user.userID, m.grpcPort, m.messages.seenMessageIDs)
+			return m, fetchNotifications(m.user.userID, m.grpcPort, m.notifications.seenMessageIDs)
 		case profileHomeItem:
 			m.state = homeEditingProfile
 			m.profile = newProfileModel(m.user, m.grpcPort)

@@ -45,10 +45,15 @@ type notificationsModel struct {
 	loading          bool
 	updating         bool
 	errorText        string
+	seenMessageIDs   map[string]struct{}
 }
 
-func newNotificationsModel(userID, grpcPort string) notificationsModel {
-	return notificationsModel{userID: userID, grpcPort: grpcPort, loading: true}
+func newNotificationsModel(userID, grpcPort string, seenMessageIDs map[string]struct{}) notificationsModel {
+	seen := make(map[string]struct{}, len(seenMessageIDs))
+	for id := range seenMessageIDs {
+		seen[id] = struct{}{}
+	}
+	return notificationsModel{userID: userID, grpcPort: grpcPort, loading: true, seenMessageIDs: seen}
 }
 
 func (m notificationsModel) Update(msg tea.Msg) (notificationsModel, tea.Cmd) {
@@ -97,7 +102,7 @@ func (m notificationsModel) Update(msg tea.Msg) (notificationsModel, tea.Cmd) {
 				return m, nil
 			}
 			m.updating, m.errorText = true, ""
-			return m, updateNotification(m.userID, m.grpcPort, m.cursor, m.items[m.cursor])
+			return m, updateNotification(m.userID, m.grpcPort, m.cursor, m.items[m.cursor], m.seenMessageIDs)
 		}
 	}
 	return m, nil
@@ -127,7 +132,7 @@ func (m notificationsModel) View() string {
 	return view + "\n\n↑/↓ to select • Enter to mark seen • Esc for home • Ctrl+C to quit"
 }
 
-func fetchNotifications(userID, grpcPort string) tea.Cmd {
+func fetchNotifications(userID, grpcPort string, seenMessageIDs map[string]struct{}) tea.Cmd {
 	return func() tea.Msg {
 		conn, err := newGRPCClient("localhost:" + grpcPort)
 		if err != nil {
@@ -138,12 +143,12 @@ func fetchNotifications(userID, grpcPort string) tea.Cmd {
 		defer cancel()
 		client := notificationsv1.NewN10NServiceClient(conn)
 		items := make([]notificationItem, 0, 2)
-		message, err := client.GetMsgN10N(ctx, &notificationsv1.GetMsgN10NRequest{Item: &notificationsv1.MsgN10NItem{UserId: userID}})
+		message, err := nextMessageNotification(ctx, client, userID, seenMessageIDs)
 		if err != nil && status.Code(err) != codes.NotFound {
 			return notificationsLoadFailedMsg{err: err}
 		}
-		if err == nil && message.GetItem() != nil {
-			items = append(items, notificationItem{kind: messageNotification, message: message.GetItem()})
+		if err == nil && message != nil {
+			items = append(items, notificationItem{kind: messageNotification, message: message})
 		}
 		friend, err := client.GetFriendN10N(ctx, &notificationsv1.GetFriendN10NRequest{Item: &notificationsv1.FriendN10NItem{UserId: userID}})
 		if err != nil && status.Code(err) != codes.NotFound {
@@ -156,7 +161,7 @@ func fetchNotifications(userID, grpcPort string) tea.Cmd {
 	}
 }
 
-func updateNotification(userID, grpcPort string, index int, item notificationItem) tea.Cmd {
+func updateNotification(userID, grpcPort string, index int, item notificationItem, seenMessageIDs map[string]struct{}) tea.Cmd {
 	return func() tea.Msg {
 		conn, err := newGRPCClient("localhost:" + grpcPort)
 		if err != nil {
@@ -172,10 +177,10 @@ func updateNotification(userID, grpcPort string, index int, item notificationIte
 			if err != nil {
 				return notificationUpdateFailedMsg{err: err}
 			}
-			var response *notificationsv1.GetMsgN10NResponse
-			response, err = client.GetMsgN10N(ctx, &notificationsv1.GetMsgN10NRequest{Item: &notificationsv1.MsgN10NItem{UserId: userID}})
-			if err == nil && response.GetItem() != nil {
-				next := notificationItem{kind: messageNotification, message: response.GetItem()}
+			var message *notificationsv1.MsgN10NItem
+			message, err = nextMessageNotification(ctx, client, userID, seenMessageIDs)
+			if err == nil && message != nil {
+				next := notificationItem{kind: messageNotification, message: message}
 				replacement = &next
 			}
 		} else {
@@ -194,5 +199,21 @@ func updateNotification(userID, grpcPort string, index int, item notificationIte
 			return notificationUpdateFailedMsg{err: err}
 		}
 		return notificationUpdatedMsg{index: index, replacement: replacement}
+	}
+}
+
+func nextMessageNotification(ctx context.Context, client notificationsv1.N10NServiceClient, userID string, seenMessageIDs map[string]struct{}) (*notificationsv1.MsgN10NItem, error) {
+	for {
+		response, err := client.GetMsgN10N(ctx, &notificationsv1.GetMsgN10NRequest{Item: &notificationsv1.MsgN10NItem{UserId: userID}})
+		if err != nil || response.GetItem() == nil {
+			return nil, err
+		}
+		item := response.GetItem()
+		if _, seen := seenMessageIDs[item.GetMessageId()]; !seen {
+			return item, nil
+		}
+		if _, err := client.UpdateMsgN10N(ctx, &notificationsv1.UpdateMsgN10NRequest{Item: &notificationsv1.MsgN10NItem{Id: item.GetId(), UserId: userID}}); err != nil {
+			return nil, err
+		}
 	}
 }

@@ -144,6 +144,7 @@ type messagesModel struct {
 	metadata         []*dmsv1.DirectMessageMetadata
 	friendNames      map[string]string
 	friendsByDM      map[string]*friendsv1.GetFriendsItem
+	seenMessageIDs   map[string]struct{}
 	sending          bool
 	errorText        string
 }
@@ -160,6 +161,7 @@ func newMessagesModel(width, height int, userID, grpcPort string) messagesModel 
 	return messagesModel{
 		list: messages, friends: friends, input: input, userID: userID, grpcPort: grpcPort,
 		loading: true, friendNames: make(map[string]string), friendsByDM: make(map[string]*friendsv1.GetFriendsItem),
+		seenMessageIDs: make(map[string]struct{}),
 	}
 }
 
@@ -236,6 +238,7 @@ func (m messagesModel) Update(msg tea.Msg) (messagesModel, tea.Cmd) {
 		}
 		m.loading = false
 		m.conversation = mergeMessages(nil, msg.items)
+		m.markMessagesSeen(msg.items)
 		m.setLastMessageTime(msg.dmID, msg.cursor)
 		return m, startMessageStream(m.grpcPort, m.selectedDM)
 	case conversationLoadFailedMsg:
@@ -258,6 +261,7 @@ func (m messagesModel) Update(msg tea.Msg) (messagesModel, tea.Cmd) {
 			return m, nil
 		}
 		m.conversation = appendMessage(m.conversation, msg.item)
+		m.markMessagesSeen([]*dmsv1.DirectMessageItem{msg.item})
 		if cursor, ok := messageTime(msg.item); ok {
 			m.setLastMessageTime(msg.dmID, cursor)
 		}
@@ -381,6 +385,17 @@ func (m messagesModel) Update(msg tea.Msg) (messagesModel, tea.Cmd) {
 		return m, cmd
 	}
 	return m, nil
+}
+
+func (m *messagesModel) markMessagesSeen(items []*dmsv1.DirectMessageItem) {
+	if m.seenMessageIDs == nil {
+		m.seenMessageIDs = make(map[string]struct{})
+	}
+	for _, item := range items {
+		if item.GetMessageId() != "" {
+			m.seenMessageIDs[item.GetMessageId()] = struct{}{}
+		}
+	}
 }
 
 func (m messagesModel) View() string {

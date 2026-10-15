@@ -161,6 +161,9 @@ func TestOpeningConversationDisplaysHistoryAndIncomingMessage(t *testing.T) {
 	if !model.selectedDM.GetLastMessageTime().AsTime().Equal(incomingTime) {
 		t.Fatalf("cursor was not advanced to incoming message: got %v want %v", model.selectedDM.GetLastMessageTime().AsTime(), incomingTime)
 	}
+	if len(model.seenMessageIDs) != 3 {
+		t.Fatalf("displayed messages were not recorded as seen: %v", model.seenMessageIDs)
+	}
 
 	view := model.View()
 	for _, text := range []string{"Conversation with bob", "You: hello from me •", "bob: hello from them •", "bob: live message •"} {
