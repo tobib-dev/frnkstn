@@ -87,13 +87,13 @@ func TestSuccessfulSignInOpensHome(t *testing.T) {
 		t.Fatal("successful sign-in did not open home with the token retained")
 	}
 	view := home.View().Content
-	for _, label := range []string{"Sign in successful", "Messages", "Groups", "Add friend", "Profile", "Sign out", "Exit"} {
+	for _, label := range []string{"Sign in successful", "Messages", "Groups", "Add friend", "Notifications", "Profile", "Sign out", "Exit"} {
 		if !strings.Contains(view, label) {
 			t.Errorf("home view is missing %q", label)
 		}
 	}
-	if len(home.home.list.Items()) != 6 {
-		t.Fatal("expected exactly six home options")
+	if len(home.home.list.Items()) != 7 {
+		t.Fatal("expected exactly seven home options")
 	}
 	if service.requestedMessagesFor != "test-user" || home.home.messages.loading {
 		t.Fatal("messages were not fetched during sign-in")
@@ -106,7 +106,7 @@ func TestSuccessfulSignInOpensHome(t *testing.T) {
 
 func TestHomeExitQuits(t *testing.T) {
 	m := newHomeModel(80, 24)
-	m.list.Select(5)
+	m.list.Select(6)
 	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("expected exit command")

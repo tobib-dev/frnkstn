@@ -16,6 +16,7 @@ const (
 	messagesHomeItem homeItem = iota
 	groupsHomeItem
 	addFriendHomeItem
+	notificationsHomeItem
 	profileHomeItem
 	signOutHomeItem
 	exitHomeItem
@@ -29,6 +30,8 @@ func (i homeItem) FilterValue() string {
 		return "Groups"
 	case addFriendHomeItem:
 		return "Add friend"
+	case notificationsHomeItem:
+		return "Notifications"
 	case profileHomeItem:
 		return "Profile"
 	case signOutHomeItem:
@@ -48,17 +51,19 @@ const (
 	homeEditingProfile
 	homeAddingFriend
 	homeViewingMessages
+	homeViewingNotifications
 )
 
 type homeModel struct {
-	list      list.Model
-	state     homeState
-	session   sessionInfo
-	grpcPort  string
-	user      userInfo
-	profile   profileModel
-	addFriend addFriendModel
-	messages  messagesModel
+	list          list.Model
+	state         homeState
+	session       sessionInfo
+	grpcPort      string
+	user          userInfo
+	profile       profileModel
+	addFriend     addFriendModel
+	messages      messagesModel
+	notifications notificationsModel
 }
 type SwitchToHomeMsg struct{}
 type signOutSuccessMsg struct{ quit bool }
@@ -67,7 +72,7 @@ type signOutFailureMsg struct{ err error }
 func newHomeModel(width, height int) homeModel {
 	delegate := list.NewDefaultDelegate()
 	delegate.ShowDescription = false
-	l := list.New([]list.Item{messagesHomeItem, groupsHomeItem, addFriendHomeItem, profileHomeItem, signOutHomeItem, exitHomeItem}, delegate, width, height)
+	l := list.New([]list.Item{messagesHomeItem, groupsHomeItem, addFriendHomeItem, notificationsHomeItem, profileHomeItem, signOutHomeItem, exitHomeItem}, delegate, width, height)
 	l.Title = "Home"
 	l.StatusMessageLifetime = 4 * time.Second
 	return homeModel{list: l}
@@ -117,7 +122,7 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		m.state = homeReady
 		return m, m.list.NewStatusMessage("Friend request sent to " + added.username)
 	}
-	if resolved, ok := msg.(friendRequestResolvedMsg); ok && m.state == homeAddingFriend {
+	if resolved, ok := msg.(friendRequestResolvedMsg); ok && m.state == homeEditingProfile {
 		m.state = homeReady
 		if resolved.message == "" {
 			return m, nil
@@ -125,13 +130,11 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		return m, m.list.NewStatusMessage(resolved.message)
 	}
 	if m.state == homeAddingFriend {
-		if key, ok := msg.(tea.KeyPressMsg); ok && !m.addFriend.adding && !m.addFriend.acting {
+		if key, ok := msg.(tea.KeyPressMsg); ok && !m.addFriend.adding {
 			switch key.String() {
 			case "esc":
-				if m.addFriend.selectedRequest == nil {
-					m.state = homeReady
-					return m, nil
-				}
+				m.state = homeReady
+				return m, nil
 			case "ctrl+c":
 				return m.signOut(true)
 			}
@@ -157,12 +160,28 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		m.messages, cmd = m.messages.Update(msg)
 		return m, cmd
 	}
-	if m.state == homeEditingProfile {
-		if key, ok := msg.(tea.KeyPressMsg); ok && !m.profile.saving {
+	if m.state == homeViewingNotifications {
+		if key, ok := msg.(tea.KeyPressMsg); ok && !m.notifications.updating {
 			switch key.String() {
 			case "esc":
 				m.state = homeReady
 				return m, nil
+			case "ctrl+c":
+				return m.signOut(true)
+			}
+		}
+		var cmd tea.Cmd
+		m.notifications, cmd = m.notifications.Update(msg)
+		return m, cmd
+	}
+	if m.state == homeEditingProfile {
+		if key, ok := msg.(tea.KeyPressMsg); ok && !m.profile.saving && !m.profile.acting {
+			switch key.String() {
+			case "esc":
+				if m.profile.selectedRequest == nil {
+					m.state = homeReady
+					return m, nil
+				}
 			case "ctrl+c":
 				return m.signOut(true)
 			}
@@ -189,13 +208,17 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		case addFriendHomeItem:
 			m.state = homeAddingFriend
 			m.addFriend = newAddFriendModel(m.user.userID, m.grpcPort)
-			return m, tea.Batch(m.addFriend.input.Focus(), fetchPendingFriendRequests(m.user.userID, m.grpcPort))
+			return m, m.addFriend.input.Focus()
+		case notificationsHomeItem:
+			m.state = homeViewingNotifications
+			m.notifications = newNotificationsModel(m.user.userID, m.grpcPort)
+			return m, fetchNotifications(m.user.userID, m.grpcPort)
 		case profileHomeItem:
 			m.state = homeEditingProfile
 			m.profile = newProfileModel(m.user, m.grpcPort)
 			var cmd tea.Cmd
 			m.profile, cmd = m.profile.focusName()
-			return m, cmd
+			return m, tea.Batch(cmd, fetchPendingFriendRequests(m.user.userID, m.grpcPort))
 		case signOutHomeItem:
 			return m.signOut(false)
 		case exitHomeItem:
@@ -238,6 +261,9 @@ func (m homeModel) View() tea.View {
 	}
 	if m.state == homeViewingMessages {
 		return tea.NewView(lipgloss.NewStyle().Margin(2).Render(m.messages.View()))
+	}
+	if m.state == homeViewingNotifications {
+		return tea.NewView(lipgloss.NewStyle().Margin(2).Render(m.notifications.View()))
 	}
 	if m.state == homeSigningOut {
 		return tea.NewView(lipgloss.NewStyle().Margin(2).Render("Signing out…"))

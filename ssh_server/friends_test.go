@@ -108,7 +108,7 @@ func TestHomeAddFriend(t *testing.T) {
 	}
 }
 
-func TestAddFriendDisplaysUnrespondedRequests(t *testing.T) {
+func TestProfileDisplaysUnrespondedRequests(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -120,7 +120,7 @@ func TestAddFriendDisplaysUnrespondedRequests(t *testing.T) {
 	go server.Serve(listener)
 	_, port, _ := net.SplitHostPort(listener.Addr().String())
 
-	model := newAddFriendModel("user", port)
+	model := newProfileModel(userInfo{userID: "user"}, port)
 	msg := fetchPendingFriendRequests("user", port)()
 	model, _ = model.Update(msg)
 	view := model.View()
@@ -157,16 +157,18 @@ func TestSelectAndResolveUnrespondedRequest(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			service.action = ""
 			m := newHomeModel(80, 24)
-			m.state = homeAddingFriend
-			m.addFriend = newAddFriendModel("user", port)
-			m.addFriend.loadingRequests = false
+			m.state = homeEditingProfile
+			m.profile = newProfileModel(userInfo{userID: "user"}, port)
+			m.profile, _ = m.profile.focusName()
+			m.profile.loadingRequests = false
 			friendID := "user"
 			if test.requester == "user" {
 				friendID = "other"
 			}
-			m.addFriend.pendingRequests = []*friendsv1.GetFriendsItem{{UserId: test.requester, FriendshipId: "friendship", FriendId: friendID, FriendUsername: "bob", Status: "pending"}}
+			m.profile.pendingRequests = []*friendsv1.GetFriendsItem{{UserId: test.requester, FriendshipId: "friendship", FriendId: friendID, FriendUsername: "bob", Status: "pending"}}
 
-			m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+			m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+			m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 			m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 			view := m.View().Content
 			for _, option := range test.wantOptions {
@@ -178,7 +180,7 @@ func TestSelectAndResolveUnrespondedRequest(t *testing.T) {
 				m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 			}
 			m, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-			if cmd == nil || !m.addFriend.acting {
+			if cmd == nil || !m.profile.acting {
 				t.Fatal("friend request action did not start")
 			}
 			m, _ = m.Update(cmd())
@@ -189,10 +191,10 @@ func TestSelectAndResolveUnrespondedRequest(t *testing.T) {
 	}
 
 	m := newHomeModel(80, 24)
-	m.state = homeAddingFriend
-	m.addFriend = newAddFriendModel("user", port)
-	m.addFriend.selectedRequest = &friendsv1.GetFriendsItem{UserId: "user"}
-	m.addFriend.actionCursor = 1
+	m.state = homeEditingProfile
+	m.profile = newProfileModel(userInfo{userID: "user"}, port)
+	m.profile.selectedRequest = &friendsv1.GetFriendsItem{UserId: "user"}
+	m.profile.actionCursor = 1
 	m, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m, _ = m.Update(cmd())
 	if m.state != homeReady {
