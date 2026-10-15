@@ -40,6 +40,8 @@ func main() {
 	godotenv.Load("../.env")
 	logFile := os.Getenv("LOGFILE")
 	dbPort := os.Getenv("DB_PORT")
+	dbUser := os.Getenv("DB_USER")
+	dbPassword := os.Getenv("DB_PASSWORD")
 	apiPortString := os.Getenv("API_PORT")
 
 	apiPort, err := strconv.Atoi(apiPortString)
@@ -69,7 +71,7 @@ func main() {
 
 	// Start DB connection pool
 	dbUrl := "localhost:" + dbPort
-	db, err := db.New(dbUrl)
+	db, err := db.New(dbUrl, dbUser, dbPassword)
 	if err != nil {
 		logger.Error("failed to start Scylla DB session", "error", err)
 	}
