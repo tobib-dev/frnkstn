@@ -3,28 +3,51 @@ package main
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gocql/gocql"
 	ntfnV1 "github.com/tobib-dev/frnkstn-proto/notifications/v1"
 	"github.com/tobib-dev/frnkstn/api/db"
+	"github.com/tobib-dev/frnkstn/api/messaging"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+type notificationBroker interface {
+	Publish(context.Context, string, string, []byte) (bool, error)
+}
+
+type rabbitNotificationBroker struct{ uri string }
+
+func (b rabbitNotificationBroker) Publish(ctx context.Context, exchange, routingKey string, body []byte) (bool, error) {
+	return messaging.Publish(ctx, exchange, routingKey, b.uri, body)
+}
+
 type notificationService struct {
-	cfg   *Config
-	store db.NotificationStore
+	cfg    *Config
+	store  db.NotificationStore
+	broker notificationBroker
 	ntfnV1.UnimplementedN10NServiceServer
 }
 
-const messageNotificationPreviewLength = 80
+const (
+	messageNotificationPreviewLength = 80
+	notificationExchange             = "notifications"
+	notificationTopic                = "notifications."
+)
 
 func NewNotificationService(cfg *Config) *notificationService {
-	return &notificationService{cfg: cfg, store: &cfg.db.session}
+	service := &notificationService{cfg: cfg, store: &cfg.db.session}
+	if cfg.brokerURI != "" {
+		service.broker = rabbitNotificationBroker{uri: cfg.brokerURI}
+	}
+	return service
 }
 
 func (s *notificationService) AddMsgN10N(ctx context.Context, req *ntfnV1.AddMsgN10NRequest) (*emptypb.Empty, error) {
@@ -50,8 +73,16 @@ func (s *notificationService) AddMsgN10N(ctx context.Context, req *ntfnV1.AddMsg
 		return nil, err
 	}
 	logger = logger.With("user_id", userID.String(), "message_id", messageID.String(), "author_id", authorID.String())
+	notificationID := gocql.TimeUUID()
+	if item.GetId() != "" {
+		notificationID, err = parseID(item.GetId(), "notification ID")
+		if err != nil {
+			logger.Warn("invalid notification ID", "error", err)
+			return nil, err
+		}
+	}
 	notification := db.MessageNotification{
-		NotificationID: gocql.TimeUUID(),
+		NotificationID: notificationID,
 		UserID:         userID,
 		MessageID:      messageID,
 		AuthorID:       authorID,
@@ -178,6 +209,89 @@ func (s *notificationService) GetFriendN10N(ctx context.Context, req *ntfnV1.Get
 		return nil, status.Error(codes.NotFound, "friend notification not found")
 	}
 	return &ntfnV1.GetFriendN10NResponse{Item: friendNotificationItem(notifications[0])}, nil
+}
+
+func (s *notificationService) publishMessageNotification(ctx context.Context, item *ntfnV1.MsgN10NItem, logger *slog.Logger) {
+	item.Content = messageNotificationPreview(item.GetContent())
+	body, err := proto.Marshal(item)
+	if err != nil {
+		logger.Error("failed to encode notification", "error", err)
+		s.storeMessageNotification(ctx, item, logger)
+		return
+	}
+	if s.broker == nil {
+		s.storeMessageNotification(ctx, item, logger)
+		return
+	}
+	routed, err := s.broker.Publish(ctx, notificationExchange, notificationRoutingKey(item.GetUserId()), body)
+	if err != nil {
+		logger.Error("failed to publish notification", "error", err)
+		s.storeMessageNotification(ctx, item, logger)
+		return
+	}
+	if !routed {
+		logger.Warn("notification was not routed; storing directly")
+		s.storeMessageNotification(ctx, item, logger)
+		return
+	}
+	logger.Info("notification published")
+}
+
+func (s *notificationService) storeMessageNotification(ctx context.Context, item *ntfnV1.MsgN10NItem, logger *slog.Logger) {
+	if _, err := s.AddMsgN10N(ctx, &ntfnV1.AddMsgN10NRequest{Item: item}); err != nil {
+		logger.Error("failed to store message notification", "error", err)
+	}
+}
+
+func notificationRoutingKey(userID string) string {
+	return notificationTopic + userID
+}
+
+func (s *notificationService) StartNotificationConsumer(ctx context.Context) error {
+	if s.cfg.brokerURI == "" {
+		return nil
+	}
+	consumer, closeConsumer, err := messaging.DeclareAndBindConsumer(ctx, notificationExchange, notificationTopic+"#", s.cfg.brokerURI)
+	if err != nil {
+		return err
+	}
+	go func() {
+		defer func() {
+			closeCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			_ = closeConsumer(closeCtx)
+		}()
+		logger := s.cfg.logger.With("location", "AddMsgN10N", "topic", notificationTopic+"#")
+		for {
+			delivery, err := consumer.Receive(ctx)
+			if err != nil {
+				if !errors.Is(err, context.Canceled) {
+					logger.Error("failed to receive message notification", "error", err)
+				}
+				return
+			}
+			if delivery == nil || delivery.Message() == nil {
+				logger.Error("received empty message notification")
+				continue
+			}
+			item := &ntfnV1.MsgN10NItem{}
+			if err := proto.Unmarshal(delivery.Message().GetData(), item); err != nil {
+				logger.Error("failed to decode message notification", "error", err)
+				_ = delivery.Discard(ctx, nil)
+				continue
+			}
+			if _, err := s.AddMsgN10N(ctx, &ntfnV1.AddMsgN10NRequest{Item: item}); err != nil {
+				logger.Error("failed to add subscribed message notification", "error", err)
+				_ = delivery.Requeue(ctx)
+				time.Sleep(time.Second)
+				continue
+			}
+			if err := delivery.Accept(ctx); err != nil {
+				logger.Error("failed to accept message notification", "error", err)
+			}
+		}
+	}()
+	return nil
 }
 
 func (s *notificationService) UpdateFriendN10N(ctx context.Context, req *ntfnV1.UpdateFriendN10NRequest) (*emptypb.Empty, error) {

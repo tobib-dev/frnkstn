@@ -23,9 +23,10 @@ import (
 )
 
 type Config struct {
-	server GRPCServerConfig
-	db     DBConfig
-	logger *slog.Logger
+	server    GRPCServerConfig
+	db        DBConfig
+	brokerURI string
+	logger    *slog.Logger
 }
 
 type GRPCServerConfig struct {
@@ -44,6 +45,7 @@ func main() {
 	dbUser := os.Getenv("DB_USER")
 	dbPassword := os.Getenv("DB_PASSWORD")
 	apiPortString := os.Getenv("API_PORT")
+	queueBrokerURI := os.Getenv("RABBITMQ_BROKER_URI")
 
 	apiPort, err := strconv.Atoi(apiPortString)
 	if err != nil {
@@ -54,6 +56,7 @@ func main() {
 		server: GRPCServerConfig{
 			port: apiPort,
 		},
+		brokerURI: queueBrokerURI,
 	}
 
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%v", cfg.server.port))
@@ -95,8 +98,11 @@ func main() {
 	userService := NewUserService(&cfg)
 	sessionService := NewSessionService(&cfg)
 	friendshipService := NewFriendService(&cfg)
-	directMessageService := NewDMService(&cfg)
 	notificationService := NewNotificationService(&cfg)
+	if err := notificationService.StartNotificationConsumer(context.Background()); err != nil {
+		logger.Error("failed to subscribe to message notifications", "error", err)
+	}
+	directMessageService := NewDMService(&cfg)
 
 	usersV1.RegisterUserServiceServer(server, userService)
 	sessionsV1.RegisterSessionServiceServer(server, sessionService)

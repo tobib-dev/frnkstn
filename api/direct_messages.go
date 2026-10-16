@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -103,21 +104,31 @@ func (s *directMessageService) SendMessages(
 		logger.Error("failed to send message", "message_id", messageID.String(), "error", err)
 		return nil, status.Error(codes.Internal, "could not send message")
 	}
-	author, err := s.users.GetUserByID(ctx, authorID)
-	if err != nil {
-		logger.Error("failed to get message author for notification", "message_id", messageID.String(), "error", err)
-	} else if _, err := s.n10n.AddMsgN10N(ctx, &ntfnV1.AddMsgN10NRequest{Item: &ntfnV1.MsgN10NItem{
-		MessageId:  messageID.String(),
-		UserId:     receiverID.String(),
-		AuthorId:   authorID.String(),
-		AuthorName: author.Username,
-		Content:    content,
-	}}); err != nil {
-		logger.Error("failed to add message notification", "message_id", messageID.String(), "error", err)
-	}
+	s.publishMessageNotification(message, logger)
 
 	logger.Info("message sent", "message_id", messageID.String())
 	return &dmsV1.SendMessagesResponse{Item: messageItem(message)}, nil
+}
+
+func (s *directMessageService) publishMessageNotification(message db.DM, logger *slog.Logger) {
+	// shortcut: asynchronous publish can be lost during process shutdown; use an outbox when delivery must survive crashes.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		author, err := s.users.GetUserByID(ctx, message.AuthorID)
+		if err != nil {
+			logger.Error("failed to get message author for notification", "message_id", message.MessageID.String(), "error", err)
+			return
+		}
+		s.n10n.publishMessageNotification(ctx, &ntfnV1.MsgN10NItem{
+			Id:         gocql.TimeUUID().String(),
+			MessageId:  message.MessageID.String(),
+			UserId:     message.ReceiverID.String(),
+			AuthorId:   message.AuthorID.String(),
+			AuthorName: author.Username,
+			Content:    message.Content,
+		}, logger.With("message_id", message.MessageID.String()))
+	}()
 }
 
 func (s *directMessageService) GetMessage(

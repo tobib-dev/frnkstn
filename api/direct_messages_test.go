@@ -51,7 +51,7 @@ func (s *testDMStore) SubscribeMessages(context.Context, db.MessageStreamParams)
 func TestSendMessagesGeneratesMessageID(t *testing.T) {
 	dmID, authorID, receiverID := gocql.TimeUUID(), gocql.TimeUUID(), gocql.TimeUUID()
 	store := &testDMStore{}
-	notifications := &testNotificationStore{}
+	notifications := &testNotificationStore{messageAdded: make(chan struct{}, 1)}
 	users := &testUserStore{users: map[gocql.UUID]db.User{
 		authorID:   {ID: authorID, Username: "alice"},
 		receiverID: {ID: receiverID},
@@ -72,6 +72,11 @@ func TestSendMessagesGeneratesMessageID(t *testing.T) {
 	if store.sent.ID != dmID || store.sent.AuthorID != authorID || store.sent.ReceiverID != receiverID || store.sent.Content != "hello" {
 		t.Fatalf("unexpected stored message: %+v", store.sent)
 	}
+	select {
+	case <-notifications.messageAdded:
+	case <-time.After(time.Second):
+		t.Fatal("message notification was not added asynchronously")
+	}
 	if notification := notifications.message; notification.MessageID != store.sent.MessageID || notification.UserID != receiverID || notification.AuthorID != authorID || notification.AuthorName != "alice" || notification.Content != "hello" {
 		t.Fatalf("unexpected message notification: %+v", notification)
 	}
@@ -81,6 +86,54 @@ func TestSendMessagesGeneratesMessageID(t *testing.T) {
 		DmId: dmID.String(), AuthorId: authorID.String(), ReceiverId: receiverID.String(), Content: "still sent",
 	}}); err != nil {
 		t.Fatalf("notification failure changed successful message send: %v", err)
+	}
+	select {
+	case <-notifications.messageAdded:
+	case <-time.After(time.Second):
+		t.Fatal("failed notification was not attempted")
+	}
+}
+
+func TestSendMessagesDoesNotWaitForNotificationPublish(t *testing.T) {
+	dmID, authorID, receiverID := gocql.TimeUUID(), gocql.TimeUUID(), gocql.TimeUUID()
+	release := make(chan struct{})
+	broker := &testNotificationBroker{publishStarted: make(chan struct{}, 1), publishRelease: release, publishFinished: make(chan struct{}, 1)}
+	users := &testUserStore{users: map[gocql.UUID]db.User{authorID: {ID: authorID, Username: "alice"}}}
+	service := &directMessageService{
+		cfg:     &Config{logger: slog.Default()},
+		store:   &testDMStore{},
+		users:   users,
+		friends: &testFriendStore{friend: db.Friend{ID: dmID, UserID: authorID, FriendID: receiverID, Status: "accepted"}},
+		n10n:    &notificationService{cfg: &Config{logger: slog.Default()}, store: &testNotificationStore{}, broker: broker},
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := service.SendMessages(context.Background(), &dmsV1.SendMessagesRequest{Item: &dmsV1.DirectMessageItem{
+			DmId: dmID.String(), AuthorId: authorID.String(), ReceiverId: receiverID.String(), Content: "hello",
+		}})
+		done <- err
+	}()
+
+	select {
+	case <-broker.publishStarted:
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("notification publish did not start")
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("message send waited for notification publish")
+	}
+	close(release)
+	select {
+	case <-broker.publishFinished:
+	case <-time.After(time.Second):
+		t.Fatal("notification publish did not finish")
 	}
 }
 
