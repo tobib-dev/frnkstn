@@ -94,7 +94,6 @@ var sessionByUserMetadata = table.Metadata{
 	Name:    "sessions_by_user_id",
 	Columns: []string{"user_id", "session_id", "refresh_token", "expires_in", "signed_out_at"},
 	PartKey: []string{"user_id"},
-	SortKey: []string{"session_id"},
 }
 
 var sessionByUserTable = table.New(sessionByUserMetadata)
