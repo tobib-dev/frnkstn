@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	dmsv1 "github.com/tobib-dev/frnkstn-proto/dms/v1"
 	friendsv1 "github.com/tobib-dev/frnkstn-proto/friends/v1"
+	notificationsv1 "github.com/tobib-dev/frnkstn-proto/notifications/v1"
 	sessionsV1 "github.com/tobib-dev/frnkstn-proto/sessions/v1"
 	usersV1 "github.com/tobib-dev/frnkstn-proto/users/v1"
 	"google.golang.org/grpc"
@@ -19,7 +20,9 @@ type signInTestSessionServer struct {
 	usersV1.UnimplementedUserServiceServer
 	dmsv1.UnimplementedDMServiceServer
 	friendsv1.UnimplementedFriendServiceServer
+	notificationsv1.UnimplementedN10NServiceServer
 	requestedMessagesFor string
+	subscribedUser       string
 }
 
 func (*signInTestSessionServer) GetUserByGHID(context.Context, *usersV1.GetUserByGHIDRequest) (*usersV1.GetUserByGHIDResponse, error) {
@@ -45,6 +48,11 @@ func (*signInTestSessionServer) GetFriends(context.Context, *friendsv1.GetFriend
 	}}}, nil
 }
 
+func (s *signInTestSessionServer) Subscribe(req *notificationsv1.SubscribeRequest, _ grpc.ServerStreamingServer[notificationsv1.SubscribeResponse]) error {
+	s.subscribedUser = req.GetUserId()
+	return nil
+}
+
 func TestSuccessfulSignInOpensHome(t *testing.T) {
 	mockGitHubUser(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -57,6 +65,7 @@ func TestSuccessfulSignInOpensHome(t *testing.T) {
 	usersV1.RegisterUserServiceServer(server, service)
 	dmsv1.RegisterDMServiceServer(server, service)
 	friendsv1.RegisterFriendServiceServer(server, service)
+	notificationsv1.RegisterN10NServiceServer(server, service)
 	t.Cleanup(server.Stop)
 	go server.Serve(listener)
 	_, port, err := net.SplitHostPort(listener.Addr().String())
@@ -77,11 +86,12 @@ func TestSuccessfulSignInOpensHome(t *testing.T) {
 	updated, cmd = updated.Update(cmd())
 	updated, cmd = updated.Update(cmd())
 	batch, ok := cmd().(tea.BatchMsg)
-	if !ok || len(batch) != 3 {
-		t.Fatal("sign-in did not schedule message metadata fetch")
+	if !ok || len(batch) != 4 {
+		t.Fatal("sign-in did not schedule home data fetches")
 	}
 	updated, _ = updated.Update(batch[1]())
 	updated, _ = updated.Update(batch[2]())
+	updated, _ = updated.Update(batch[3]())
 	home := updated.(mainModel)
 	if home.state != homeView || home.signIn.token.AccessToken != "test-token" || home.signIn.session.sessionID != "test-session" {
 		t.Fatal("successful sign-in did not open home with the token retained")
@@ -97,6 +107,9 @@ func TestSuccessfulSignInOpensHome(t *testing.T) {
 	}
 	if service.requestedMessagesFor != "test-user" || home.home.messages.loading {
 		t.Fatal("messages were not fetched during sign-in")
+	}
+	if service.subscribedUser != "test-user" {
+		t.Fatal("notifications were not polled during sign-in")
 	}
 	messagesView := home.home.messages.View()
 	if !strings.Contains(messagesView, "bob") || strings.Contains(messagesView, "friendship") {

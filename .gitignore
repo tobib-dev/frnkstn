@@ -3,9 +3,10 @@ ssh_server/.ssh/
 ssh_server/tui
 /api/api
 /api/frnkstn
-
+/api/serve.sh
 # logs
 *.log
+
 
 # Local development against sibling modules.
 go.work

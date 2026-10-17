@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -55,15 +56,17 @@ const (
 )
 
 type homeModel struct {
-	list          list.Model
-	state         homeState
-	session       sessionInfo
-	grpcPort      string
-	user          userInfo
-	profile       profileModel
-	addFriend     addFriendModel
-	messages      messagesModel
-	notifications notificationsModel
+	list                list.Model
+	state               homeState
+	session             sessionInfo
+	grpcPort            string
+	user                userInfo
+	profile             profileModel
+	addFriend           addFriendModel
+	messages            messagesModel
+	notifications       notificationsModel
+	notificationItems   []notificationItem
+	notificationPolling bool
 }
 type SwitchToHomeMsg struct{}
 type signOutSuccessMsg struct{ quit bool }
@@ -79,6 +82,29 @@ func newHomeModel(width, height int) homeModel {
 }
 
 func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
+	switch msg := msg.(type) {
+	case notificationsPolledMsg:
+		hasNew := hasNewNotification(msg.items, m.notificationItems)
+		m.notificationItems = msg.items
+		if m.state == homeViewingNotifications && !m.notifications.updating {
+			m.notifications.items = msg.items
+			m.notifications.loading = false
+			m.notifications.errorText = ""
+		}
+		poll := scheduleNotificationPoll()
+		if hasNew {
+			return m, tea.Batch(poll, m.list.NewStatusMessage(fmt.Sprintf("You have %d new notification(s)", len(msg.items))))
+		}
+		return m, poll
+	case notificationsPollFailedMsg:
+		if m.state == homeViewingNotifications {
+			m.notifications.loading = false
+			m.notifications.errorText = "Could not load notifications."
+		}
+		return m, scheduleNotificationPoll()
+	case notificationsPollTickMsg:
+		return m, pollNotifications(m.user.userID, m.grpcPort, m.messages.seenMessageIDs)
+	}
 	if started, ok := msg.(messageStreamStartedMsg); ok && m.state != homeViewingMessages {
 		started.subscription.close()
 		return m, nil
@@ -172,6 +198,7 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		}
 		var cmd tea.Cmd
 		m.notifications, cmd = m.notifications.Update(msg)
+		m.notificationItems = m.notifications.items
 		return m, cmd
 	}
 	if m.state == homeEditingProfile {
@@ -212,7 +239,13 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		case notificationsHomeItem:
 			m.state = homeViewingNotifications
 			m.notifications = newNotificationsModel(m.user.userID, m.grpcPort, m.messages.seenMessageIDs)
-			return m, fetchNotifications(m.user.userID, m.grpcPort, m.notifications.seenMessageIDs)
+			if m.notificationPolling {
+				m.notifications.items = m.notificationItems
+				m.notifications.loading = false
+				return m, nil
+			}
+			m.notificationPolling = true
+			return m, pollNotifications(m.user.userID, m.grpcPort, m.notifications.seenMessageIDs)
 		case profileHomeItem:
 			m.state = homeEditingProfile
 			m.profile = newProfileModel(m.user, m.grpcPort)
@@ -228,6 +261,22 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
 	return m, cmd
+}
+
+func hasNewNotification(items, previous []notificationItem) bool {
+	for _, item := range items {
+		found := false
+		for _, old := range previous {
+			if item.kind == old.kind && item.id() == old.id() {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return true
+		}
+	}
+	return false
 }
 
 func profileLogUser(user userInfo) map[string]string {

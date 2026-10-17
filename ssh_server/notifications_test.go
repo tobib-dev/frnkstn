@@ -16,9 +16,10 @@ import (
 
 type notificationTestServer struct {
 	notificationsv1.UnimplementedN10NServiceServer
-	messages []*notificationsv1.MsgN10NItem
-	friends  []*notificationsv1.FriendN10NItem
-	updated  []string
+	messages      []*notificationsv1.MsgN10NItem
+	friends       []*notificationsv1.FriendN10NItem
+	updated       []string
+	subscriptions int
 }
 
 func (s *notificationTestServer) GetMsgN10N(context.Context, *notificationsv1.GetMsgN10NRequest) (*notificationsv1.GetMsgN10NResponse, error) {
@@ -45,6 +46,21 @@ func (s *notificationTestServer) UpdateFriendN10N(_ context.Context, req *notifi
 	s.updated = append(s.updated, req.GetItem().GetId())
 	s.friends = s.friends[1:]
 	return &emptypb.Empty{}, nil
+}
+
+func (s *notificationTestServer) Subscribe(_ *notificationsv1.SubscribeRequest, stream grpc.ServerStreamingServer[notificationsv1.SubscribeResponse]) error {
+	s.subscriptions++
+	for _, message := range s.messages {
+		if err := stream.Send(&notificationsv1.SubscribeResponse{Item: &notificationsv1.SubscribeResponse_Message{Message: message}}); err != nil {
+			return err
+		}
+	}
+	for _, friend := range s.friends {
+		if err := stream.Send(&notificationsv1.SubscribeResponse{Item: &notificationsv1.SubscribeResponse_Friend{Friend: friend}}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func TestHomeNotificationsGetAndMarkSeen(t *testing.T) {
@@ -76,6 +92,11 @@ func TestHomeNotificationsGetAndMarkSeen(t *testing.T) {
 	m, _ = m.Update(cmd())
 	if view := m.View().Content; !strings.Contains(view, "Message from Alice: hello") || !strings.Contains(view, "Friend request from Bob") {
 		t.Fatalf("notifications were not displayed: %q", view)
+	}
+	m, cmd = m.Update(notificationsPollTickMsg{})
+	m, _ = m.Update(cmd())
+	if service.subscriptions != 2 {
+		t.Fatalf("notification polling did not subscribe again: %d", service.subscriptions)
 	}
 
 	m, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
