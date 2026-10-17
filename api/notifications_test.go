@@ -9,6 +9,7 @@ import (
 	"github.com/gocql/gocql"
 	ntfnV1 "github.com/tobib-dev/frnkstn-proto/notifications/v1"
 	"github.com/tobib-dev/frnkstn/api/db"
+	"google.golang.org/grpc/metadata"
 )
 
 type testNotificationStore struct {
@@ -21,6 +22,7 @@ type testNotificationStore struct {
 	messageGets    int
 	friendGets     int
 	messageAdded   chan struct{}
+	friendAdded    chan struct{}
 }
 
 func (s *testNotificationStore) AddMessageNotification(_ context.Context, notification db.MessageNotification) error {
@@ -43,9 +45,29 @@ func (s *testNotificationStore) UpdateMessageNotification(_ context.Context, use
 }
 
 func (s *testNotificationStore) AddFriendNotification(_ context.Context, notification db.FriendNotification) error {
+	err := s.friendErr
 	s.friend = notification
-	return s.friendErr
+	if s.friendAdded != nil {
+		s.friendAdded <- struct{}{}
+	}
+	return err
 }
+
+type testNotificationStream struct {
+	ctx   context.Context
+	items []*ntfnV1.SubscribeResponse
+}
+
+func (s *testNotificationStream) Send(item *ntfnV1.SubscribeResponse) error {
+	s.items = append(s.items, item)
+	return nil
+}
+func (*testNotificationStream) SetHeader(metadata.MD) error  { return nil }
+func (*testNotificationStream) SendHeader(metadata.MD) error { return nil }
+func (*testNotificationStream) SetTrailer(metadata.MD)       {}
+func (s *testNotificationStream) Context() context.Context   { return s.ctx }
+func (*testNotificationStream) SendMsg(any) error            { return nil }
+func (*testNotificationStream) RecvMsg(any) error            { return nil }
 
 func (s *testNotificationStore) GetFriendNotification(context.Context, gocql.UUID) ([]db.FriendNotification, error) {
 	s.friendGets++
@@ -54,6 +76,7 @@ func (s *testNotificationStore) GetFriendNotification(context.Context, gocql.UUI
 
 type testNotificationBroker struct {
 	exchange, routingKey string
+	body                 []byte
 	publishes            int
 	publishErr           error
 	publishStarted       chan struct{}
@@ -73,6 +96,7 @@ func (b *testNotificationBroker) Publish(_ context.Context, exchange, routingKey
 	}
 	b.publishes++
 	b.exchange, b.routingKey = exchange, routingKey
+	b.body = body
 	return true, b.publishErr
 }
 
@@ -149,6 +173,23 @@ func TestFriendNotificationLifecycle(t *testing.T) {
 	}
 	if store.updatedFriend != [2]gocql.UUID{userID, store.friend.NotificationID} {
 		t.Fatalf("unexpected update IDs: %v", store.updatedFriend)
+	}
+}
+
+func TestSubscribeReturnsUnseenNotifications(t *testing.T) {
+	userID := gocql.TimeUUID()
+	store := &testNotificationStore{
+		message: db.MessageNotification{NotificationID: gocql.TimeUUID(), UserID: userID, MessageID: gocql.TimeUUID(), AuthorID: gocql.TimeUUID()},
+		friend:  db.FriendNotification{NotificationID: gocql.TimeUUID(), UserID: userID, FriendshipID: gocql.TimeUUID(), FriendID: gocql.TimeUUID()},
+	}
+	stream := &testNotificationStream{ctx: context.Background()}
+	service := &notificationService{cfg: &Config{logger: slog.Default()}, store: store}
+
+	if err := service.Subscribe(&ntfnV1.SubscribeRequest{UserId: userID.String()}, stream); err != nil {
+		t.Fatal(err)
+	}
+	if len(stream.items) != 2 || stream.items[0].GetMessage() == nil || stream.items[1].GetFriend() == nil {
+		t.Fatalf("unexpected subscribed notifications: %+v", stream.items)
 	}
 }
 

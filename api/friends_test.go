@@ -5,10 +5,13 @@ import (
 	"errors"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/gocql/gocql"
 	friendsv1 "github.com/tobib-dev/frnkstn-proto/friends/v1"
+	ntfnV1 "github.com/tobib-dev/frnkstn-proto/notifications/v1"
 	"github.com/tobib-dev/frnkstn/api/db"
+	"google.golang.org/protobuf/proto"
 )
 
 type testFriendStore struct {
@@ -139,7 +142,7 @@ func TestAddFriendGeneratesTimeUUIDOnServer(t *testing.T) {
 		friendID: {ID: friendID, Username: "bob"},
 	}}
 	store := &testFriendStore{}
-	notifications := &testNotificationStore{}
+	notifications := &testNotificationStore{friendAdded: make(chan struct{}, 1)}
 	cfg := &Config{logger: slog.Default()}
 	service := &FriendService{cfg: cfg, store: store, users: users, n10n: &notificationService{cfg: cfg, store: notifications}}
 
@@ -153,6 +156,11 @@ func TestAddFriendGeneratesTimeUUIDOnServer(t *testing.T) {
 	if response.FriendshipId != store.friend.ID.String() || response.Status != "pending" || store.friend.FriendName != "bob" || store.addedUserName != "alice" {
 		t.Fatalf("unexpected response or stored friend: response=%+v friend=%+v", response, store.friend)
 	}
+	select {
+	case <-notifications.friendAdded:
+	case <-time.After(time.Second):
+		t.Fatal("friend notification was not added asynchronously")
+	}
 	if notification := notifications.friend; notification.UserID != friendID || notification.FriendshipID != store.friend.ID || notification.FriendID != userID || notification.FriendName != "alice" || notification.Status != "pending" {
 		t.Fatalf("unexpected friend notification: %+v", notification)
 	}
@@ -160,5 +168,56 @@ func TestAddFriendGeneratesTimeUUIDOnServer(t *testing.T) {
 	notifications.friendErr = errors.New("notification unavailable")
 	if _, err := service.AddFriend(context.Background(), &friendsv1.AddFriendRequest{UserId: userID.String(), FriendId: friendID.String()}); err != nil {
 		t.Fatalf("notification failure changed successful friend request: %v", err)
+	}
+	select {
+	case <-notifications.friendAdded:
+	case <-time.After(time.Second):
+		t.Fatal("failed friend notification was not attempted")
+	}
+}
+
+func TestAddFriendDoesNotWaitForNotificationPublish(t *testing.T) {
+	userID, friendID := gocql.TimeUUID(), gocql.TimeUUID()
+	release := make(chan struct{})
+	broker := &testNotificationBroker{publishStarted: make(chan struct{}, 1), publishRelease: release, publishFinished: make(chan struct{}, 1)}
+	service := &FriendService{
+		cfg:   &Config{logger: slog.Default()},
+		store: &testFriendStore{},
+		users: &testUserStore{users: map[gocql.UUID]db.User{userID: {ID: userID, Username: "alice"}, friendID: {ID: friendID, Username: "bob"}}},
+		n10n:  &notificationService{cfg: &Config{logger: slog.Default()}, store: &testNotificationStore{}, broker: broker},
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := service.AddFriend(context.Background(), &friendsv1.AddFriendRequest{UserId: userID.String(), FriendId: friendID.String()})
+		done <- err
+	}()
+
+	select {
+	case <-broker.publishStarted:
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("friend notification publish did not start")
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		close(release)
+		t.Fatal("friend request waited for notification publish")
+	}
+	close(release)
+	select {
+	case <-broker.publishFinished:
+	case <-time.After(time.Second):
+		t.Fatal("friend notification publish did not finish")
+	}
+	envelope := &ntfnV1.SubscribeResponse{}
+	if err := proto.Unmarshal(broker.body, envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.GetFriend() == nil || envelope.GetFriend().GetUserId() != friendID.String() || broker.routingKey != "notifications."+friendID.String() {
+		t.Fatalf("unexpected friend notification publish: broker=%+v item=%+v", broker, envelope.GetFriend())
 	}
 }

@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"time"
 
 	"github.com/gocql/gocql"
 	friendsv1 "github.com/tobib-dev/frnkstn-proto/friends/v1"
@@ -54,17 +56,25 @@ func (s *FriendService) AddFriend(ctx context.Context, req *friendsv1.AddFriendR
 		logger.Error("failed to add friend", "error", err, "friendship_id", friendship.ID)
 		return nil, status.Error(codes.Internal, "could not add friend")
 	}
-	if _, err := s.n10n.AddFriendN10N(ctx, &ntfnV1.AddFriendN10NRequest{Item: &ntfnV1.FriendN10NItem{
-		UserId:       friendship.FriendID.String(),
-		FriendshipId: friendship.ID.String(),
-		FriendId:     friendship.UserID.String(),
-		FriendName:   user.Username,
-		Status:       friendship.Status,
-	}}); err != nil {
-		logger.Error("failed to add friend notification", "error", err, "friendship_id", friendship.ID)
-	}
+	s.publishFriendNotification(friendship, user.Username, logger)
 	logger.Info("friend added", "friendship_id", friendship.ID, "status", friendship.Status)
 	return &friendsv1.AddFriendResponse{FriendshipId: friendship.ID.String(), FriendId: friendship.FriendID.String(), Status: friendship.Status}, nil
+}
+
+func (s *FriendService) publishFriendNotification(friendship db.Friend, requesterName string, logger *slog.Logger) {
+	// shortcut: asynchronous publish can be lost during process shutdown; use an outbox when delivery must survive crashes.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		s.n10n.publishFriendNotification(ctx, &ntfnV1.FriendN10NItem{
+			Id:           gocql.TimeUUID().String(),
+			UserId:       friendship.FriendID.String(),
+			FriendshipId: friendship.ID.String(),
+			FriendId:     friendship.UserID.String(),
+			FriendName:   requesterName,
+			Status:       friendship.Status,
+		}, logger.With("friendship_id", friendship.ID.String()))
+	}()
 }
 
 func (s *FriendService) AcceptFriend(ctx context.Context, req *friendsv1.AcceptFriendRequest) (*friendsv1.AcceptFriendResponse, error) {

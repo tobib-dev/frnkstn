@@ -12,6 +12,7 @@ import (
 	ntfnV1 "github.com/tobib-dev/frnkstn-proto/notifications/v1"
 	"github.com/tobib-dev/frnkstn/api/db"
 	"github.com/tobib-dev/frnkstn/api/messaging"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -172,8 +173,16 @@ func (s *notificationService) AddFriendN10N(ctx context.Context, req *ntfnV1.Add
 		return nil, err
 	}
 	logger = logger.With("user_id", userID.String(), "friendship_id", friendshipID.String(), "friend_id", friendID.String())
+	notificationID := gocql.TimeUUID()
+	if item.GetId() != "" {
+		notificationID, err = parseID(item.GetId(), "notification ID")
+		if err != nil {
+			logger.Warn("invalid notification ID", "error", err)
+			return nil, err
+		}
+	}
 	notification := db.FriendNotification{
-		NotificationID: gocql.TimeUUID(),
+		NotificationID: notificationID,
 		UserID:         userID,
 		FriendshipID:   friendshipID,
 		FriendID:       friendID,
@@ -213,25 +222,37 @@ func (s *notificationService) GetFriendN10N(ctx context.Context, req *ntfnV1.Get
 
 func (s *notificationService) publishMessageNotification(ctx context.Context, item *ntfnV1.MsgN10NItem, logger *slog.Logger) {
 	item.Content = messageNotificationPreview(item.GetContent())
+	s.publishNotification(ctx, item.GetUserId(), &ntfnV1.SubscribeResponse{Item: &ntfnV1.SubscribeResponse_Message{Message: item}}, logger, func() {
+		s.storeMessageNotification(ctx, item, logger)
+	})
+}
+
+func (s *notificationService) publishFriendNotification(ctx context.Context, item *ntfnV1.FriendN10NItem, logger *slog.Logger) {
+	s.publishNotification(ctx, item.GetUserId(), &ntfnV1.SubscribeResponse{Item: &ntfnV1.SubscribeResponse_Friend{Friend: item}}, logger, func() {
+		s.storeFriendNotification(ctx, item, logger)
+	})
+}
+
+func (s *notificationService) publishNotification(ctx context.Context, userID string, item *ntfnV1.SubscribeResponse, logger *slog.Logger, store func()) {
 	body, err := proto.Marshal(item)
 	if err != nil {
 		logger.Error("failed to encode notification", "error", err)
-		s.storeMessageNotification(ctx, item, logger)
+		store()
 		return
 	}
 	if s.broker == nil {
-		s.storeMessageNotification(ctx, item, logger)
+		store()
 		return
 	}
-	routed, err := s.broker.Publish(ctx, notificationExchange, notificationRoutingKey(item.GetUserId()), body)
+	routed, err := s.broker.Publish(ctx, notificationExchange, notificationRoutingKey(userID), body)
 	if err != nil {
 		logger.Error("failed to publish notification", "error", err)
-		s.storeMessageNotification(ctx, item, logger)
+		store()
 		return
 	}
 	if !routed {
 		logger.Warn("notification was not routed; storing directly")
-		s.storeMessageNotification(ctx, item, logger)
+		store()
 		return
 	}
 	logger.Info("notification published")
@@ -240,6 +261,12 @@ func (s *notificationService) publishMessageNotification(ctx context.Context, it
 func (s *notificationService) storeMessageNotification(ctx context.Context, item *ntfnV1.MsgN10NItem, logger *slog.Logger) {
 	if _, err := s.AddMsgN10N(ctx, &ntfnV1.AddMsgN10NRequest{Item: item}); err != nil {
 		logger.Error("failed to store message notification", "error", err)
+	}
+}
+
+func (s *notificationService) storeFriendNotification(ctx context.Context, item *ntfnV1.FriendN10NItem, logger *slog.Logger) {
+	if _, err := s.AddFriendN10N(ctx, &ntfnV1.AddFriendN10NRequest{Item: item}); err != nil {
+		logger.Error("failed to store friend notification", "error", err)
 	}
 }
 
@@ -261,27 +288,38 @@ func (s *notificationService) StartNotificationConsumer(ctx context.Context) err
 			defer cancel()
 			_ = closeConsumer(closeCtx)
 		}()
-		logger := s.cfg.logger.With("location", "AddMsgN10N", "topic", notificationTopic+"#")
+		logger := s.cfg.logger.With("location", "StartNotificationConsumer", "topic", notificationTopic+"#")
 		for {
 			delivery, err := consumer.Receive(ctx)
 			if err != nil {
 				if !errors.Is(err, context.Canceled) {
-					logger.Error("failed to receive message notification", "error", err)
+					logger.Error("failed to receive notification", "error", err)
 				}
 				return
 			}
 			if delivery == nil || delivery.Message() == nil {
-				logger.Error("received empty message notification")
+				logger.Error("received empty notification")
 				continue
 			}
-			item := &ntfnV1.MsgN10NItem{}
+			item := &ntfnV1.SubscribeResponse{}
 			if err := proto.Unmarshal(delivery.Message().GetData(), item); err != nil {
-				logger.Error("failed to decode message notification", "error", err)
+				logger.Error("failed to decode notification", "error", err)
 				_ = delivery.Discard(ctx, nil)
 				continue
 			}
-			if _, err := s.AddMsgN10N(ctx, &ntfnV1.AddMsgN10NRequest{Item: item}); err != nil {
-				logger.Error("failed to add subscribed message notification", "error", err)
+			var addErr error
+			switch {
+			case item.GetMessage() != nil:
+				_, addErr = s.AddMsgN10N(ctx, &ntfnV1.AddMsgN10NRequest{Item: item.GetMessage()})
+			case item.GetFriend() != nil:
+				_, addErr = s.AddFriendN10N(ctx, &ntfnV1.AddFriendN10NRequest{Item: item.GetFriend()})
+			default:
+				logger.Error("received notification without an item")
+				_ = delivery.Discard(ctx, nil)
+				continue
+			}
+			if addErr != nil {
+				logger.Error("failed to add subscribed notification", "error", addErr)
 				_ = delivery.Requeue(ctx)
 				time.Sleep(time.Second)
 				continue
@@ -291,6 +329,32 @@ func (s *notificationService) StartNotificationConsumer(ctx context.Context) err
 			}
 		}
 	}()
+	return nil
+}
+
+func (s *notificationService) Subscribe(req *ntfnV1.SubscribeRequest, stream grpc.ServerStreamingServer[ntfnV1.SubscribeResponse]) error {
+	userID, err := parseID(req.GetUserId(), "user ID")
+	if err != nil {
+		return err
+	}
+	messages, err := s.store.GetMessageNotification(stream.Context(), userID)
+	if err != nil {
+		return status.Error(codes.Internal, "could not get message notifications")
+	}
+	for _, notification := range messages {
+		if err := stream.Send(&ntfnV1.SubscribeResponse{Item: &ntfnV1.SubscribeResponse_Message{Message: messageNotificationItem(notification)}}); err != nil {
+			return err
+		}
+	}
+	friends, err := s.store.GetFriendNotification(stream.Context(), userID)
+	if err != nil {
+		return status.Error(codes.Internal, "could not get friend notifications")
+	}
+	for _, notification := range friends {
+		if err := stream.Send(&ntfnV1.SubscribeResponse{Item: &ntfnV1.SubscribeResponse_Friend{Friend: friendNotificationItem(notification)}}); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
