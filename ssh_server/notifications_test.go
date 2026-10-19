@@ -114,6 +114,9 @@ func TestHomeNotificationsGetAndMarkSeen(t *testing.T) {
 	if len(service.updated) != 2 || service.updated[1] != "friend-1" || strings.Contains(m.View().Content, "Friend request from Bob") {
 		t.Fatalf("friend notification was not marked seen: updates=%v view=%q", service.updated, m.View().Content)
 	}
+	if got := m.notificationCounter.Load(); got != 1 {
+		t.Fatalf("notification counter was not updated after marking notifications seen: %d", got)
+	}
 }
 
 func TestHomeNotificationsSkipsMessagesAlreadyDisplayed(t *testing.T) {

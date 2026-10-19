@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -11,10 +12,10 @@ import (
 	"charm.land/log/v2"
 )
 
-type homeItem int
+type homeItemKind int
 
 const (
-	messagesHomeItem homeItem = iota
+	messagesHomeItem homeItemKind = iota
 	groupsHomeItem
 	addFriendHomeItem
 	notificationsHomeItem
@@ -23,8 +24,13 @@ const (
 	exitHomeItem
 )
 
+type homeItem struct {
+	kind    homeItemKind
+	counter *atomic.Int64
+}
+
 func (i homeItem) FilterValue() string {
-	switch i {
+	switch i.kind {
 	case messagesHomeItem:
 		return "Messages"
 	case groupsHomeItem:
@@ -41,7 +47,13 @@ func (i homeItem) FilterValue() string {
 		return "Exit"
 	}
 }
-func (i homeItem) Title() string       { return i.FilterValue() }
+func (i homeItem) Title() string {
+	label := i.FilterValue()
+	if i.counter != nil {
+		return fmt.Sprintf("%s (%d)", label, i.counter.Load())
+	}
+	return label
+}
 func (i homeItem) Description() string { return "" }
 
 type homeState int
@@ -67,6 +79,9 @@ type homeModel struct {
 	notifications       notificationsModel
 	notificationItems   []notificationItem
 	notificationPolling bool
+	messageCounter      *atomic.Int64
+	notificationCounter *atomic.Int64
+	unreadAuthors       map[string]struct{}
 }
 type SwitchToHomeMsg struct{}
 type signOutSuccessMsg struct{ quit bool }
@@ -75,10 +90,19 @@ type signOutFailureMsg struct{ err error }
 func newHomeModel(width, height int) homeModel {
 	delegate := list.NewDefaultDelegate()
 	delegate.ShowDescription = false
-	l := list.New([]list.Item{messagesHomeItem, groupsHomeItem, addFriendHomeItem, notificationsHomeItem, profileHomeItem, signOutHomeItem, exitHomeItem}, delegate, width, height)
+	messageCounter, notificationCounter := &atomic.Int64{}, &atomic.Int64{}
+	l := list.New([]list.Item{
+		homeItem{kind: messagesHomeItem, counter: messageCounter},
+		homeItem{kind: groupsHomeItem},
+		homeItem{kind: addFriendHomeItem},
+		homeItem{kind: notificationsHomeItem, counter: notificationCounter},
+		homeItem{kind: profileHomeItem},
+		homeItem{kind: signOutHomeItem},
+		homeItem{kind: exitHomeItem},
+	}, delegate, width, height)
 	l.Title = "Home"
 	l.StatusMessageLifetime = 4 * time.Second
-	return homeModel{list: l}
+	return homeModel{list: l, messageCounter: messageCounter, notificationCounter: notificationCounter, unreadAuthors: make(map[string]struct{})}
 }
 
 func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
@@ -86,6 +110,7 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 	case notificationsPolledMsg:
 		hasNew := hasNewNotification(msg.items, m.notificationItems)
 		m.notificationItems = msg.items
+		m.setNotificationCounters(msg.items)
 		if m.state == homeViewingNotifications && !m.notifications.updating {
 			m.notifications.items = msg.items
 			m.notifications.loading = false
@@ -183,7 +208,11 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 			}
 		}
 		var cmd tea.Cmd
+		previousState := m.messages.state
 		m.messages, cmd = m.messages.Update(msg)
+		if previousState != messagesViewingConversation && m.messages.state == messagesViewingConversation && m.messages.selectedDM != nil {
+			m.markDMRead(m.messages.selectedDM.GetDmId())
+		}
 		return m, cmd
 	}
 	if m.state == homeViewingNotifications {
@@ -199,6 +228,7 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		var cmd tea.Cmd
 		m.notifications, cmd = m.notifications.Update(msg)
 		m.notificationItems = m.notifications.items
+		m.setNotificationCounters(m.notificationItems)
 		return m, cmd
 	}
 	if m.state == homeEditingProfile {
@@ -224,7 +254,7 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		}
 	}
 	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "enter" {
-		switch m.list.SelectedItem().(homeItem) {
+		switch m.list.SelectedItem().(homeItem).kind {
 		case messagesHomeItem:
 			m.state = homeViewingMessages
 			if m.messages.userID == "" {
@@ -261,6 +291,30 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 	var cmd tea.Cmd
 	m.list, cmd = m.list.Update(msg)
 	return m, cmd
+}
+
+func (m *homeModel) markDMRead(dmID string) {
+	friend := m.messages.friendsByDM[dmID]
+	if friend == nil {
+		return
+	}
+	authorID := (messageFriendItem{friend: friend, userID: m.user.userID}).receiverID()
+	if _, unread := m.unreadAuthors[authorID]; !unread {
+		return
+	}
+	delete(m.unreadAuthors, authorID)
+	m.messageCounter.Add(-1)
+}
+
+func (m *homeModel) setNotificationCounters(items []notificationItem) {
+	m.unreadAuthors = make(map[string]struct{})
+	for _, item := range items {
+		if item.kind == messageNotification && item.message.GetAuthorId() != "" {
+			m.unreadAuthors[item.message.GetAuthorId()] = struct{}{}
+		}
+	}
+	m.messageCounter.Store(int64(len(m.unreadAuthors)))
+	m.notificationCounter.Store(int64(len(items)))
 }
 
 func hasNewNotification(items, previous []notificationItem) bool {

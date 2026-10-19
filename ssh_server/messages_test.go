@@ -11,6 +11,7 @@ import (
 	"github.com/gocql/gocql"
 	dmsv1 "github.com/tobib-dev/frnkstn-proto/dms/v1"
 	friendsv1 "github.com/tobib-dev/frnkstn-proto/friends/v1"
+	notificationsv1 "github.com/tobib-dev/frnkstn-proto/notifications/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -111,9 +112,18 @@ func TestMessagesOptionLoadsMetadataAndStartsMessage(t *testing.T) {
 	home, cmd = home.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	home, _ = home.Update(cmd())
 	home.messages.friends.Select(1)
+	home, _ = home.Update(notificationsPolledMsg{items: []notificationItem{{
+		kind: messageNotification, message: &notificationsv1.MsgN10NItem{Id: "notification", AuthorId: "existing-friend"},
+	}}})
+	if got := home.messageCounter.Load(); got != 1 {
+		t.Fatalf("incoming conversation was not counted: %d", got)
+	}
 	home, cmd = home.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd == nil || home.messages.state != messagesViewingConversation || home.messages.selectedDM.GetDmId() != "existing-friendship" {
 		t.Fatal("selecting an existing friend did not open the previous conversation")
+	}
+	if got := home.messageCounter.Load(); got != 0 {
+		t.Fatalf("opening a conversation did not clear its message count: %d", got)
 	}
 }
 

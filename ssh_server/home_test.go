@@ -128,3 +128,20 @@ func TestHomeExitQuits(t *testing.T) {
 		t.Fatal("exit did not quit")
 	}
 }
+
+func TestHomeCountersCountDistinctConversationsAndNotifications(t *testing.T) {
+	m := newHomeModel(80, 24)
+	m, _ = m.Update(notificationsPolledMsg{items: []notificationItem{
+		{kind: messageNotification, message: &notificationsv1.MsgN10NItem{Id: "message-1", AuthorId: "friend-1"}},
+		{kind: messageNotification, message: &notificationsv1.MsgN10NItem{Id: "message-2", AuthorId: "friend-1"}},
+		{kind: messageNotification, message: &notificationsv1.MsgN10NItem{Id: "message-3", AuthorId: "friend-2"}},
+		{kind: friendNotification, friend: &notificationsv1.FriendN10NItem{Id: "friend"}},
+	}})
+
+	if got := m.list.Items()[0].(homeItem).Title(); got != "Messages (2)" {
+		t.Fatalf("unexpected message counter: %q", got)
+	}
+	if got := m.list.Items()[3].(homeItem).Title(); got != "Notifications (4)" {
+		t.Fatalf("unexpected notification counter: %q", got)
+	}
+}
