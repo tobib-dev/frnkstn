@@ -72,9 +72,11 @@ type messageStreamFailedMsg struct {
 }
 
 type messageSubscription struct {
-	conn   *grpc.ClientConn
-	stream grpc.ServerStreamingClient[dmsv1.DirectMessageItem]
-	cancel context.CancelFunc
+	conn                *grpc.ClientConn
+	stream              grpc.ServerStreamingClient[dmsv1.DirectMessageItem]
+	cancel              context.CancelFunc
+	startedAt           time.Time
+	firstResponseLogged bool
 }
 
 func (s *messageSubscription) close() {
@@ -619,6 +621,7 @@ func startMessageStream(grpcPort string, metadata *dmsv1.DirectMessageMetadata) 
 			return messageStreamFailedMsg{dmID: dmID, err: err}
 		}
 		ctx, cancel := context.WithCancel(context.Background())
+		startedAt := time.Now()
 		stream, err := dmsv1.NewDMServiceClient(conn).SubscribeMessages(ctx, &dmsv1.SubscribeMessagesRequest{
 			DmId: dmID, LastMsgTime: msgTime,
 		})
@@ -627,7 +630,7 @@ func startMessageStream(grpcPort string, metadata *dmsv1.DirectMessageMetadata) 
 			conn.Close()
 			return messageStreamFailedMsg{dmID: dmID, err: err}
 		}
-		return messageStreamStartedMsg{dmID: dmID, subscription: &messageSubscription{conn: conn, stream: stream, cancel: cancel}}
+		return messageStreamStartedMsg{dmID: dmID, subscription: &messageSubscription{conn: conn, stream: stream, cancel: cancel, startedAt: startedAt}}
 	}
 }
 
@@ -650,6 +653,10 @@ func receiveMessage(dmID string, subscription *messageSubscription) tea.Cmd {
 		}
 		if err != nil {
 			return messageStreamFailedMsg{dmID: dmID, err: err, subscription: subscription}
+		}
+		if !subscription.firstResponseLogged {
+			log.Info("subscription first response received", "method", dmsv1.DMService_SubscribeMessages_FullMethodName, "dm_id", dmID, "time_to_first_response_ms", time.Since(subscription.startedAt).Seconds()*1000)
+			subscription.firstResponseLogged = true
 		}
 		return messageStreamReceivedMsg{dmID: dmID, item: item, subscription: subscription}
 	}

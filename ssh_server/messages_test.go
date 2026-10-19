@@ -154,6 +154,9 @@ func TestOpeningConversationDisplaysHistoryAndIncomingMessage(t *testing.T) {
 	if cmd == nil || service.subscribedDM != "friendship" {
 		t.Fatal("next stream receive was not scheduled")
 	}
+	if !model.subscription.firstResponseLogged {
+		t.Fatal("message subscription did not record its first response")
+	}
 	if !service.subscribedAt.After(time.Unix(1, 0)) {
 		t.Fatalf("subscription used stale cursor: %v", service.subscribedAt)
 	}

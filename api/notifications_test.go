@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gocql/gocql"
 	ntfnV1 "github.com/tobib-dev/frnkstn-proto/notifications/v1"
@@ -13,16 +14,20 @@ import (
 )
 
 type testNotificationStore struct {
-	message        db.MessageNotification
-	friend         db.FriendNotification
-	updatedMessage [2]gocql.UUID
-	updatedFriend  [2]gocql.UUID
-	messageErr     error
-	friendErr      error
-	messageGets    int
-	friendGets     int
-	messageAdded   chan struct{}
-	friendAdded    chan struct{}
+	message           db.MessageNotification
+	friend            db.FriendNotification
+	updatedMessage    [2]gocql.UUID
+	updatedFriend     [2]gocql.UUID
+	messageErr        error
+	friendErr         error
+	messageGets       int
+	friendGets        int
+	messageAdded      chan struct{}
+	friendAdded       chan struct{}
+	messageGetStarted chan struct{}
+	messageGetRelease <-chan struct{}
+	friendGetStarted  chan struct{}
+	friendGetRelease  <-chan struct{}
 }
 
 func (s *testNotificationStore) AddMessageNotification(_ context.Context, notification db.MessageNotification) error {
@@ -35,6 +40,12 @@ func (s *testNotificationStore) AddMessageNotification(_ context.Context, notifi
 }
 
 func (s *testNotificationStore) GetMessageNotification(context.Context, gocql.UUID) ([]db.MessageNotification, error) {
+	if s.messageGetStarted != nil {
+		s.messageGetStarted <- struct{}{}
+	}
+	if s.messageGetRelease != nil {
+		<-s.messageGetRelease
+	}
 	s.messageGets++
 	return []db.MessageNotification{s.message}, nil
 }
@@ -70,6 +81,12 @@ func (*testNotificationStream) SendMsg(any) error            { return nil }
 func (*testNotificationStream) RecvMsg(any) error            { return nil }
 
 func (s *testNotificationStore) GetFriendNotification(context.Context, gocql.UUID) ([]db.FriendNotification, error) {
+	if s.friendGetStarted != nil {
+		s.friendGetStarted <- struct{}{}
+	}
+	if s.friendGetRelease != nil {
+		<-s.friendGetRelease
+	}
 	s.friendGets++
 	return []db.FriendNotification{s.friend}, nil
 }
@@ -188,8 +205,37 @@ func TestSubscribeReturnsUnseenNotifications(t *testing.T) {
 	if err := service.Subscribe(&ntfnV1.SubscribeRequest{UserId: userID.String()}, stream); err != nil {
 		t.Fatal(err)
 	}
-	if len(stream.items) != 2 || stream.items[0].GetMessage() == nil || stream.items[1].GetFriend() == nil {
+	if len(stream.items) != 2 || (stream.items[0].GetMessage() == nil && stream.items[1].GetMessage() == nil) || (stream.items[0].GetFriend() == nil && stream.items[1].GetFriend() == nil) {
 		t.Fatalf("unexpected subscribed notifications: %+v", stream.items)
+	}
+}
+
+func TestSubscribeLoadsNotificationTypesConcurrently(t *testing.T) {
+	userID := gocql.TimeUUID()
+	messageRelease, friendRelease := make(chan struct{}), make(chan struct{})
+	store := &testNotificationStore{
+		messageGetStarted: make(chan struct{}, 1), messageGetRelease: messageRelease,
+		friendGetStarted: make(chan struct{}, 1), friendGetRelease: friendRelease,
+	}
+	service := &notificationService{cfg: &Config{logger: slog.Default()}, store: store}
+	done := make(chan error, 1)
+	go func() {
+		done <- service.Subscribe(&ntfnV1.SubscribeRequest{UserId: userID.String()}, &testNotificationStream{ctx: context.Background()})
+	}()
+
+	for _, started := range []chan struct{}{store.messageGetStarted, store.friendGetStarted} {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			close(messageRelease)
+			close(friendRelease)
+			t.Fatal("notification queries did not start concurrently")
+		}
+	}
+	close(messageRelease)
+	close(friendRelease)
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }
 

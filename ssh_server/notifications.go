@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/log/v2"
 	notificationsv1 "github.com/tobib-dev/frnkstn-proto/notifications/v1"
 )
 
@@ -147,11 +148,13 @@ func pollNotifications(userID, grpcPort string, seenMessageIDs map[string]struct
 		ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
 		defer cancel()
 		client := notificationsv1.NewN10NServiceClient(conn)
+		startedAt := time.Now()
 		stream, err := client.Subscribe(ctx, &notificationsv1.SubscribeRequest{UserId: userID})
 		if err != nil {
 			return notificationsPollFailedMsg{err: err}
 		}
 		items := make([]notificationItem, 0, 2)
+		firstResponseLogged := false
 		for {
 			response, err := stream.Recv()
 			if err == io.EOF {
@@ -159,6 +162,10 @@ func pollNotifications(userID, grpcPort string, seenMessageIDs map[string]struct
 			}
 			if err != nil {
 				return notificationsPollFailedMsg{err: err}
+			}
+			if !firstResponseLogged {
+				log.Info("subscription first response received", "method", notificationsv1.N10NService_Subscribe_FullMethodName, "user_id", userID, "time_to_first_response_ms", time.Since(startedAt).Seconds()*1000)
+				firstResponseLogged = true
 			}
 			if message := response.GetMessage(); message != nil {
 				if _, displayed := seen[message.GetMessageId()]; displayed {

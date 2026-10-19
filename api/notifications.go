@@ -337,21 +337,64 @@ func (s *notificationService) Subscribe(req *ntfnV1.SubscribeRequest, stream grp
 	if err != nil {
 		return err
 	}
-	messages, err := s.store.GetMessageNotification(stream.Context(), userID)
-	if err != nil {
-		return status.Error(codes.Internal, "could not get message notifications")
+	type result struct {
+		item *ntfnV1.SubscribeResponse
+		err  error
+		done bool
 	}
-	for _, notification := range messages {
-		if err := stream.Send(&ntfnV1.SubscribeResponse{Item: &ntfnV1.SubscribeResponse_Message{Message: messageNotificationItem(notification)}}); err != nil {
-			return err
+	ctx, cancel := context.WithCancel(stream.Context())
+	defer cancel()
+	results := make(chan result)
+	send := func(value result) bool {
+		select {
+		case results <- value:
+			return true
+		case <-ctx.Done():
+			return false
 		}
 	}
-	friends, err := s.store.GetFriendNotification(stream.Context(), userID)
-	if err != nil {
-		return status.Error(codes.Internal, "could not get friend notifications")
-	}
-	for _, notification := range friends {
-		if err := stream.Send(&ntfnV1.SubscribeResponse{Item: &ntfnV1.SubscribeResponse_Friend{Friend: friendNotificationItem(notification)}}); err != nil {
+	go func() {
+		messages, err := s.store.GetMessageNotification(ctx, userID)
+		if err != nil {
+			send(result{err: status.Error(codes.Internal, "could not get message notifications")})
+			return
+		}
+		for _, notification := range messages {
+			if !send(result{item: &ntfnV1.SubscribeResponse{Item: &ntfnV1.SubscribeResponse_Message{Message: messageNotificationItem(notification)}}}) {
+				return
+			}
+		}
+		send(result{done: true})
+	}()
+	go func() {
+		friends, err := s.store.GetFriendNotification(ctx, userID)
+		if err != nil {
+			send(result{err: status.Error(codes.Internal, "could not get friend notifications")})
+			return
+		}
+		for _, notification := range friends {
+			if !send(result{item: &ntfnV1.SubscribeResponse{Item: &ntfnV1.SubscribeResponse_Friend{Friend: friendNotificationItem(notification)}}}) {
+				return
+			}
+		}
+		send(result{done: true})
+	}()
+
+	for completed := 0; completed < 2; {
+		var result result
+		select {
+		case result = <-results:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		if result.err != nil {
+			return result.err
+		}
+		if result.done {
+			completed++
+			continue
+		}
+		if err := stream.Send(result.item); err != nil {
 			return err
 		}
 	}
