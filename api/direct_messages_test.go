@@ -22,6 +22,7 @@ type testDMStore struct {
 	requestedDMID  gocql.UUID
 	requestedUser  gocql.UUID
 	requestedMsgID gocql.UUID
+	markedRead     []db.DM
 }
 
 func (s *testDMStore) SendMessage(_ context.Context, message db.DM) error {
@@ -34,9 +35,47 @@ func (s *testDMStore) GetMessage(_ context.Context, dmID, messageID gocql.UUID) 
 	return s.message, nil
 }
 
+func (s *testDMStore) GetMessageByID(_ context.Context, messageID gocql.UUID) (db.DM, error) {
+	s.requestedMsgID = messageID
+	return s.message, nil
+}
+
+func (s *testDMStore) MarkMessagesRead(_ context.Context, messages []db.DM) error {
+	s.markedRead = append(s.markedRead, messages...)
+	return nil
+}
+
 func (s *testDMStore) GetMessages(_ context.Context, dmID gocql.UUID) ([]db.DM, error) {
 	s.requestedDMID = dmID
 	return s.messages, nil
+}
+
+func TestMarkMessagesReadOnlyAllowsReceiver(t *testing.T) {
+	dmID, messageID, receiverID := gocql.TimeUUID(), gocql.TimeUUID(), gocql.TimeUUID()
+	message := db.DM{ID: dmID, MessageID: messageID, ReceiverID: receiverID}
+	store := &testDMStore{messages: []db.DM{message}}
+	notifications := &testNotificationStore{}
+	service := &directMessageService{
+		cfg: &Config{logger: slog.Default()}, store: store,
+		n10n: &notificationService{store: notifications},
+	}
+
+	_, err := service.MarkMessagesRead(context.Background(), &dmsV1.MarkMessagesReadRequest{
+		DmId: dmID.String(), UserId: receiverID.String(), MessageIds: []string{messageID.String(), messageID.String()},
+	})
+	if err != nil || len(store.markedRead) != 1 || store.markedRead[0].MessageID != messageID {
+		t.Fatalf("message was not marked read once: messages=%+v error=%v", store.markedRead, err)
+	}
+	if notifications.deletedUser != receiverID || len(notifications.deletedMessages) != 1 || notifications.deletedMessages[0] != messageID {
+		t.Fatalf("read message notification was not deleted: user=%s messages=%v", notifications.deletedUser, notifications.deletedMessages)
+	}
+	otherUser := gocql.TimeUUID()
+	_, err = service.MarkMessagesRead(context.Background(), &dmsV1.MarkMessagesReadRequest{
+		DmId: dmID.String(), UserId: otherUser.String(), MessageIds: []string{messageID.String()},
+	})
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("non-receiver marked message read: %v", err)
+	}
 }
 
 func (s *testDMStore) GetMessagesByUser(_ context.Context, userID gocql.UUID) ([]db.DMMetadata, error) {
@@ -158,7 +197,7 @@ func TestSendMessagesRequiresExistingFriendship(t *testing.T) {
 func TestGetMessagesAndMetadataReturnEveryItem(t *testing.T) {
 	dmID, secondDMID, userID := gocql.TimeUUID(), gocql.TimeUUID(), gocql.TimeUUID()
 	messages := []db.DM{
-		{ID: dmID, MessageID: gocql.TimeUUID(), Content: "one"},
+		{ID: dmID, MessageID: gocql.TimeUUID(), Content: "one", Read: true},
 		{ID: dmID, MessageID: gocql.TimeUUID(), Content: "two"},
 	}
 	metadata := []db.DMMetadata{
@@ -179,6 +218,9 @@ func TestGetMessagesAndMetadataReturnEveryItem(t *testing.T) {
 	}
 	if len(byDM.Items) != len(messages) || len(byUser.Items) != len(metadata) {
 		t.Fatalf("results were truncated: messages=%d metadata=%d", len(byDM.Items), len(byUser.Items))
+	}
+	if !byDM.Items[0].GetRead() {
+		t.Fatal("message read receipt was not returned")
 	}
 	if byUser.Items[0].DmId != dmID.String() || !byUser.Items[0].LastMessageTime.AsTime().Equal(metadata[0].LastMessageTime) {
 		t.Fatalf("unexpected metadata: %+v", byUser.Items[0])

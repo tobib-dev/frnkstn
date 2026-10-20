@@ -214,6 +214,65 @@ func (s *directMessageService) GetMessages(
 	return &dmsV1.GetMessagesResponse{Items: messageItems(messages)}, nil
 }
 
+func (s *directMessageService) MarkMessagesRead(
+	ctx context.Context,
+	req *dmsV1.MarkMessagesReadRequest,
+) (*dmsV1.MarkMessagesReadResponse, error) {
+	dmID, err := parseID(req.GetDmId(), "friendship ID")
+	if err != nil {
+		return nil, err
+	}
+	userID, err := parseID(req.GetUserId(), "user ID")
+	if err != nil {
+		return nil, err
+	}
+	logger := s.cfg.logger.With("location", "MarkMessagesRead", "dm_id", dmID.String(), "user_id", userID.String())
+	requested := make(map[gocql.UUID]struct{}, len(req.GetMessageIds()))
+	for _, value := range req.GetMessageIds() {
+		messageID, err := parseID(value, "message ID")
+		if err != nil {
+			return nil, err
+		}
+		requested[messageID] = struct{}{}
+	}
+	if len(requested) == 0 {
+		return &dmsV1.MarkMessagesReadResponse{}, nil
+	}
+	conversation, err := s.store.GetMessages(ctx, dmID)
+	if err != nil {
+		logger.Error("failed to get messages", "error", err)
+		return nil, status.Error(codes.Internal, "could not get messages")
+	}
+	messages := make([]db.DM, 0, len(requested))
+	for _, message := range conversation {
+		if _, ok := requested[message.MessageID]; !ok {
+			continue
+		}
+		if message.ReceiverID != userID {
+			return nil, status.Error(codes.PermissionDenied, "only the message receiver can mark it read")
+		}
+		messages = append(messages, message)
+		delete(requested, message.MessageID)
+	}
+	if len(requested) > 0 {
+		return nil, status.Error(codes.NotFound, "message not found")
+	}
+	if err := s.store.MarkMessagesRead(ctx, messages); err != nil {
+		logger.Error("failed to mark messages read", "error", err)
+		return nil, status.Error(codes.Internal, "could not mark messages read")
+	}
+	messageIDs := make([]gocql.UUID, 0, len(messages))
+	for _, message := range messages {
+		messageIDs = append(messageIDs, message.MessageID)
+	}
+	if err := s.n10n.store.DeleteMessageNotifications(ctx, userID, messageIDs); err != nil {
+		logger.Error("failed to clear read message notifications", "error", err)
+		return nil, status.Error(codes.Internal, "could not clear read message notifications")
+	}
+	logger.Info("messages marked read", "count", len(messages))
+	return &dmsV1.MarkMessagesReadResponse{}, nil
+}
+
 // Server side streaming, stream messages if user is online
 func (s *directMessageService) SubscribeMessages(
 	req *dmsV1.SubscribeMessagesRequest,
@@ -284,6 +343,7 @@ func messageItem(msg db.DM) *dmsV1.DirectMessageItem {
 		AuthorId:   msg.AuthorID.String(),
 		ReceiverId: msg.ReceiverID.String(),
 		Content:    msg.Content,
+		Read:       msg.Read,
 	}
 }
 

@@ -152,7 +152,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.home.list.NewStatusMessage("Sign in successful"),
 			fetchMessagesByUser(m.home.user.userID, m.home.grpcPort),
 			fetchMessageFriends(m.home.user.userID, m.home.grpcPort),
-			pollNotifications(m.home.user.userID, m.home.grpcPort, m.home.messages.seenMessageIDs),
+			pollNotifications(m.home.user.userID, m.home.grpcPort),
 		)
 
 	case profileUpdatedMsg:

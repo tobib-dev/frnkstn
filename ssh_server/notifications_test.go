@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	dmsv1 "github.com/tobib-dev/frnkstn-proto/dms/v1"
+	friendsv1 "github.com/tobib-dev/frnkstn-proto/friends/v1"
 	notificationsv1 "github.com/tobib-dev/frnkstn-proto/notifications/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -99,6 +101,10 @@ func TestHomeNotificationsGetAndMarkSeen(t *testing.T) {
 		t.Fatalf("notification polling did not subscribe again: %d", service.subscriptions)
 	}
 
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if view := m.View().Content; !strings.Contains(view, "Mark as seen") || !strings.Contains(view, "Ignore") || !strings.Contains(view, "Enter conversation") {
+		t.Fatalf("message notification actions were not displayed: %q", view)
+	}
 	m, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd == nil || !m.notifications.updating {
 		t.Fatal("message notification was not marked as seen")
@@ -109,6 +115,10 @@ func TestHomeNotificationsGetAndMarkSeen(t *testing.T) {
 	}
 
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if strings.Contains(m.View().Content, "Enter conversation") {
+		t.Fatal("friend notification offered a conversation action")
+	}
 	m, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m, _ = m.Update(cmd())
 	if len(service.updated) != 2 || service.updated[1] != "friend-1" || strings.Contains(m.View().Content, "Friend request from Bob") {
@@ -119,15 +129,14 @@ func TestHomeNotificationsGetAndMarkSeen(t *testing.T) {
 	}
 }
 
-func TestHomeNotificationsSkipsMessagesAlreadyDisplayed(t *testing.T) {
+func TestMessageNotificationCanBeIgnoredOrOpenConversation(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := &notificationTestServer{messages: []*notificationsv1.MsgN10NItem{
-		{Id: "notification-seen", MessageId: "message-seen", AuthorName: "Alice", Content: "already read"},
-		{Id: "notification-unread", MessageId: "message-unread", AuthorName: "Alice", Content: "new message"},
-	}}
+	service := &notificationTestServer{messages: []*notificationsv1.MsgN10NItem{{
+		Id: "notification", MessageId: "message", AuthorId: "friend", AuthorName: "Alice", Content: "hello",
+	}}}
 	server := grpc.NewServer()
 	notificationsv1.RegisterN10NServiceServer(server, service)
 	t.Cleanup(server.Stop)
@@ -137,13 +146,36 @@ func TestHomeNotificationsSkipsMessagesAlreadyDisplayed(t *testing.T) {
 	m := newHomeModel(80, 24)
 	m.user = userInfo{userID: "user"}
 	m.grpcPort = port
-	m.messages.seenMessageIDs = map[string]struct{}{"message-seen": {}}
+	m.messages = newMessagesModel(80, 24, "user", port)
+	m.messages, _ = m.messages.Update(messageFriendsLoadedMsg{items: []*friendsv1.GetFriendsItem{{
+		UserId: "user", FriendshipId: "friendship", FriendId: "friend", Status: "accepted",
+	}}})
+	m.messages, _ = m.messages.Update(messagesLoadedMsg{items: []*dmsv1.DirectMessageMetadata{{DmId: "friendship"}}})
+	m.notificationPolling = true
+	m.notificationItems = []notificationItem{{kind: messageNotification, message: service.messages[0]}}
 	m.list.Select(3)
-	m, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	m, _ = m.Update(cmd())
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
-	view := m.View().Content
-	if len(service.updated) != 1 || service.updated[0] != "notification-seen" || strings.Contains(view, "already read") || !strings.Contains(view, "new message") {
-		t.Fatalf("seen notification was not deduplicated: updates=%v view=%q", service.updated, view)
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd != nil || m.notifications.selected != -1 || len(m.notifications.items) != 1 || len(service.updated) != 0 {
+		t.Fatal("ignoring a notification changed it")
+	}
+
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil || !m.notifications.updating {
+		t.Fatal("enter conversation did not mark the notification as seen")
+	}
+	m, cmd = m.Update(cmd())
+	if cmd == nil || len(service.updated) != 1 {
+		t.Fatal("enter conversation did not update the notification")
+	}
+	m, cmd = m.Update(cmd())
+	if cmd == nil || m.state != homeViewingMessages || m.messages.state != messagesViewingConversation || m.messages.selectedDM.GetDmId() != "friendship" {
+		t.Fatal("message notification did not open its conversation")
 	}
 }

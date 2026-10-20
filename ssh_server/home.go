@@ -111,7 +111,7 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		hasNew := hasNewNotification(msg.items, m.notificationItems)
 		m.notificationItems = msg.items
 		m.setNotificationCounters(msg.items)
-		if m.state == homeViewingNotifications && !m.notifications.updating {
+		if m.state == homeViewingNotifications && !m.notifications.updating && m.notifications.selected < 0 {
 			m.notifications.items = msg.items
 			m.notifications.loading = false
 			m.notifications.errorText = ""
@@ -128,7 +128,18 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		}
 		return m, scheduleNotificationPoll()
 	case notificationsPollTickMsg:
-		return m, pollNotifications(m.user.userID, m.grpcPort, m.messages.seenMessageIDs)
+		return m, pollNotifications(m.user.userID, m.grpcPort)
+	case enterNotificationConversationMsg:
+		metadata := m.messages.metadataForAuthor(msg.authorID)
+		if metadata == nil {
+			m.notifications.errorText = "Could not open conversation."
+			return m, nil
+		}
+		m.state = homeViewingMessages
+		var cmd tea.Cmd
+		m.messages, cmd = m.messages.openConversation(metadata)
+		m.markDMRead(metadata.GetDmId())
+		return m, cmd
 	}
 	if started, ok := msg.(messageStreamStartedMsg); ok && m.state != homeViewingMessages {
 		started.subscription.close()
@@ -219,8 +230,10 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		if key, ok := msg.(tea.KeyPressMsg); ok && !m.notifications.updating {
 			switch key.String() {
 			case "esc":
-				m.state = homeReady
-				return m, nil
+				if m.notifications.selected < 0 {
+					m.state = homeReady
+					return m, nil
+				}
 			case "ctrl+c":
 				return m.signOut(true)
 			}
@@ -268,14 +281,14 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 			return m, m.addFriend.input.Focus()
 		case notificationsHomeItem:
 			m.state = homeViewingNotifications
-			m.notifications = newNotificationsModel(m.user.userID, m.grpcPort, m.messages.seenMessageIDs)
+			m.notifications = newNotificationsModel(m.user.userID, m.grpcPort)
 			if m.notificationPolling {
 				m.notifications.items = m.notificationItems
 				m.notifications.loading = false
 				return m, nil
 			}
 			m.notificationPolling = true
-			return m, pollNotifications(m.user.userID, m.grpcPort, m.notifications.seenMessageIDs)
+			return m, pollNotifications(m.user.userID, m.grpcPort)
 		case profileHomeItem:
 			m.state = homeEditingProfile
 			m.profile = newProfileModel(m.user, m.grpcPort)

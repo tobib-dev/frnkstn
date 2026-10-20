@@ -70,6 +70,7 @@ type messageStreamFailedMsg struct {
 	err          error
 	subscription *messageSubscription
 }
+type messagesReadMsg struct{}
 
 type messageSubscription struct {
 	conn                *grpc.ClientConn
@@ -146,7 +147,6 @@ type messagesModel struct {
 	metadata         []*dmsv1.DirectMessageMetadata
 	friendNames      map[string]string
 	friendsByDM      map[string]*friendsv1.GetFriendsItem
-	seenMessageIDs   map[string]struct{}
 	sending          bool
 	errorText        string
 }
@@ -163,7 +163,6 @@ func newMessagesModel(width, height int, userID, grpcPort string) messagesModel 
 	return messagesModel{
 		list: messages, friends: friends, input: input, userID: userID, grpcPort: grpcPort,
 		loading: true, friendNames: make(map[string]string), friendsByDM: make(map[string]*friendsv1.GetFriendsItem),
-		seenMessageIDs: make(map[string]struct{}),
 	}
 }
 
@@ -240,9 +239,8 @@ func (m messagesModel) Update(msg tea.Msg) (messagesModel, tea.Cmd) {
 		}
 		m.loading = false
 		m.conversation = mergeMessages(nil, msg.items)
-		m.markMessagesSeen(msg.items)
 		m.setLastMessageTime(msg.dmID, msg.cursor)
-		return m, startMessageStream(m.grpcPort, m.selectedDM)
+		return m, markMessagesRead(m.userID, m.grpcPort, msg.dmID, msg.items, startMessageStream(m.grpcPort, m.selectedDM))
 	case conversationLoadFailedMsg:
 		if m.isViewing(msg.dmID) {
 			m.loading = false
@@ -263,11 +261,12 @@ func (m messagesModel) Update(msg tea.Msg) (messagesModel, tea.Cmd) {
 			return m, nil
 		}
 		m.conversation = appendMessage(m.conversation, msg.item)
-		m.markMessagesSeen([]*dmsv1.DirectMessageItem{msg.item})
 		if cursor, ok := messageTime(msg.item); ok {
 			m.setLastMessageTime(msg.dmID, cursor)
 		}
-		return m, receiveMessage(msg.dmID, msg.subscription)
+		return m, markMessagesRead(m.userID, m.grpcPort, msg.dmID, []*dmsv1.DirectMessageItem{msg.item}, receiveMessage(msg.dmID, msg.subscription))
+	case messagesReadMsg:
+		return m, nil
 	case messageStreamClosedMsg:
 		if m.isViewing(msg.dmID) && m.subscription == msg.subscription {
 			m.stopSubscription()
@@ -389,17 +388,6 @@ func (m messagesModel) Update(msg tea.Msg) (messagesModel, tea.Cmd) {
 	return m, nil
 }
 
-func (m *messagesModel) markMessagesSeen(items []*dmsv1.DirectMessageItem) {
-	if m.seenMessageIDs == nil {
-		m.seenMessageIDs = make(map[string]struct{})
-	}
-	for _, item := range items {
-		if item.GetMessageId() != "" {
-			m.seenMessageIDs[item.GetMessageId()] = struct{}{}
-		}
-	}
-}
-
 func (m messagesModel) View() string {
 	switch m.state {
 	case messagesChoosingFriend:
@@ -472,6 +460,18 @@ func (m messagesModel) metadataForDM(dmID string) *dmsv1.DirectMessageMetadata {
 	for _, metadata := range m.metadata {
 		if metadata.GetDmId() == dmID {
 			return metadata
+		}
+	}
+	return nil
+}
+
+func (m messagesModel) metadataForAuthor(authorID string) *dmsv1.DirectMessageMetadata {
+	for dmID, friend := range m.friendsByDM {
+		if (messageFriendItem{friend: friend, userID: m.userID}).receiverID() == authorID {
+			if metadata := m.metadataForDM(dmID); metadata != nil {
+				return metadata
+			}
+			return &dmsv1.DirectMessageMetadata{DmId: dmID}
 		}
 	}
 	return nil
@@ -601,6 +601,42 @@ func fetchConversation(dmID, grpcPort string) tea.Cmd {
 		}
 		return conversationLoadedMsg{dmID: dmID, items: response.GetItems(), cursor: cursor}
 	}
+}
+
+func markMessagesRead(userID, grpcPort, dmID string, items []*dmsv1.DirectMessageItem, next tea.Cmd) tea.Cmd {
+	messageIDs := make([]string, 0, len(items))
+	for _, item := range items {
+		if item.GetReceiverId() == userID && !item.GetRead() && item.GetMessageId() != "" {
+			messageIDs = append(messageIDs, item.GetMessageId())
+		}
+	}
+	if len(messageIDs) == 0 {
+		return next
+	}
+	return func() tea.Msg {
+		conn, err := newGRPCClient("localhost:" + grpcPort)
+		if err != nil {
+			log.Error("failed to mark displayed messages read", "error", err)
+			return runNextMessage(next)
+		}
+		defer conn.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
+		defer cancel()
+		_, err = dmsv1.NewDMServiceClient(conn).MarkMessagesRead(ctx, &dmsv1.MarkMessagesReadRequest{
+			DmId: dmID, UserId: userID, MessageIds: messageIDs,
+		})
+		if err != nil {
+			log.Error("failed to mark displayed messages read", "error", err)
+		}
+		return runNextMessage(next)
+	}
+}
+
+func runNextMessage(next tea.Cmd) tea.Msg {
+	if next == nil {
+		return messagesReadMsg{}
+	}
+	return next()
 }
 
 func startMessageStream(grpcPort string, metadata *dmsv1.DirectMessageMetadata) tea.Cmd {

@@ -17,6 +17,8 @@ type testNotificationStore struct {
 	message           db.MessageNotification
 	friend            db.FriendNotification
 	updatedMessage    [2]gocql.UUID
+	deletedMessages   []gocql.UUID
+	deletedUser       gocql.UUID
 	updatedFriend     [2]gocql.UUID
 	messageErr        error
 	friendErr         error
@@ -28,6 +30,18 @@ type testNotificationStore struct {
 	messageGetRelease <-chan struct{}
 	friendGetStarted  chan struct{}
 	friendGetRelease  <-chan struct{}
+}
+
+type testNotificationMessageStore struct {
+	messages map[gocql.UUID]db.DM
+}
+
+func (s testNotificationMessageStore) GetMessageByID(_ context.Context, messageID gocql.UUID) (db.DM, error) {
+	message, ok := s.messages[messageID]
+	if !ok {
+		return db.DM{}, gocql.ErrNotFound
+	}
+	return message, nil
 }
 
 func (s *testNotificationStore) AddMessageNotification(_ context.Context, notification db.MessageNotification) error {
@@ -52,6 +66,12 @@ func (s *testNotificationStore) GetMessageNotification(context.Context, gocql.UU
 
 func (s *testNotificationStore) UpdateMessageNotification(_ context.Context, userID, notificationID gocql.UUID) error {
 	s.updatedMessage = [2]gocql.UUID{userID, notificationID}
+	return nil
+}
+
+func (s *testNotificationStore) DeleteMessageNotifications(_ context.Context, userID gocql.UUID, messageIDs []gocql.UUID) error {
+	s.deletedUser = userID
+	s.deletedMessages = append(s.deletedMessages, messageIDs...)
 	return nil
 }
 
@@ -207,6 +227,25 @@ func TestSubscribeReturnsUnseenNotifications(t *testing.T) {
 	}
 	if len(stream.items) != 2 || (stream.items[0].GetMessage() == nil && stream.items[1].GetMessage() == nil) || (stream.items[0].GetFriend() == nil && stream.items[1].GetFriend() == nil) {
 		t.Fatalf("unexpected subscribed notifications: %+v", stream.items)
+	}
+}
+
+func TestReadMessageNotificationIsRemovedWhenAdded(t *testing.T) {
+	userID, messageID, authorID, notificationID := gocql.TimeUUID(), gocql.TimeUUID(), gocql.TimeUUID(), gocql.TimeUUID()
+	store := &testNotificationStore{}
+	service := &notificationService{
+		cfg: &Config{logger: slog.Default()}, store: store,
+		messages: testNotificationMessageStore{messages: map[gocql.UUID]db.DM{messageID: {MessageID: messageID, Read: true}}},
+	}
+
+	_, err := service.AddMsgN10N(context.Background(), &ntfnV1.AddMsgN10NRequest{Item: &ntfnV1.MsgN10NItem{
+		Id: notificationID.String(), UserId: userID.String(), MessageId: messageID.String(), AuthorId: authorID.String(),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.updatedMessage != [2]gocql.UUID{userID, notificationID} {
+		t.Fatalf("read message notification was retained: %v", store.updatedMessage)
 	}
 }
 

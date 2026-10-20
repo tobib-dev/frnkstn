@@ -42,27 +42,35 @@ type notificationsPolledMsg struct{ items []notificationItem }
 type notificationsPollFailedMsg struct{ err error }
 type notificationsPollTickMsg struct{}
 type notificationUpdatedMsg struct {
-	index       int
-	replacement *notificationItem
+	index             int
+	replacement       *notificationItem
+	enterConversation bool
+	authorID          string
 }
 type notificationUpdateFailedMsg struct{ err error }
+type enterNotificationConversationMsg struct{ authorID string }
+
+type notificationAction int
+
+const (
+	markNotificationSeen notificationAction = iota
+	ignoreNotification
+	enterNotificationConversation
+)
 
 type notificationsModel struct {
 	userID, grpcPort string
 	items            []notificationItem
 	cursor           int
+	selected         int
+	actionCursor     int
 	loading          bool
 	updating         bool
 	errorText        string
-	seenMessageIDs   map[string]struct{}
 }
 
-func newNotificationsModel(userID, grpcPort string, seenMessageIDs map[string]struct{}) notificationsModel {
-	seen := make(map[string]struct{}, len(seenMessageIDs))
-	for id := range seenMessageIDs {
-		seen[id] = struct{}{}
-	}
-	return notificationsModel{userID: userID, grpcPort: grpcPort, loading: true, seenMessageIDs: seen}
+func newNotificationsModel(userID, grpcPort string) notificationsModel {
+	return notificationsModel{userID: userID, grpcPort: grpcPort, selected: -1, loading: true}
 }
 
 func (m notificationsModel) Update(msg tea.Msg) (notificationsModel, tea.Cmd) {
@@ -77,7 +85,11 @@ func (m notificationsModel) Update(msg tea.Msg) (notificationsModel, tea.Cmd) {
 		} else {
 			m.items[msg.index] = *msg.replacement
 		}
+		m.selected = -1
 		m.errorText = ""
+		if msg.enterConversation {
+			return m, func() tea.Msg { return enterNotificationConversationMsg{authorID: msg.authorID} }
+		}
 		return m, nil
 	case notificationUpdateFailedMsg:
 		m.updating = false
@@ -86,6 +98,9 @@ func (m notificationsModel) Update(msg tea.Msg) (notificationsModel, tea.Cmd) {
 	}
 	if m.loading || m.updating {
 		return m, nil
+	}
+	if m.selected >= 0 {
+		return m.updateSelected(msg)
 	}
 	if key, ok := msg.(tea.KeyPressMsg); ok {
 		switch key.String() {
@@ -101,14 +116,78 @@ func (m notificationsModel) Update(msg tea.Msg) (notificationsModel, tea.Cmd) {
 			if len(m.items) == 0 {
 				return m, nil
 			}
-			m.updating, m.errorText = true, ""
-			return m, updateNotification(m.userID, m.grpcPort, m.cursor, m.items[m.cursor])
+			m.selected, m.actionCursor, m.errorText = m.cursor, 0, ""
 		}
 	}
 	return m, nil
 }
 
+func (m notificationsModel) updateSelected(msg tea.Msg) (notificationsModel, tea.Cmd) {
+	key, ok := msg.(tea.KeyPressMsg)
+	if !ok {
+		return m, nil
+	}
+	actions := m.actions()
+	switch key.String() {
+	case "up":
+		if m.actionCursor > 0 {
+			m.actionCursor--
+		}
+	case "down":
+		if m.actionCursor < len(actions)-1 {
+			m.actionCursor++
+		}
+	case "esc":
+		m.selected = -1
+		m.errorText = ""
+	case "enter":
+		action := actions[m.actionCursor]
+		if action == ignoreNotification {
+			m.selected = -1
+			return m, nil
+		}
+		m.updating, m.errorText = true, ""
+		return m, updateNotification(m.userID, m.grpcPort, m.selected, m.items[m.selected], action == enterNotificationConversation)
+	}
+	return m, nil
+}
+
+func (m notificationsModel) actions() []notificationAction {
+	actions := []notificationAction{markNotificationSeen, ignoreNotification}
+	if m.items[m.selected].kind == messageNotification {
+		actions = append(actions, enterNotificationConversation)
+	}
+	return actions
+}
+
+func (a notificationAction) label() string {
+	switch a {
+	case markNotificationSeen:
+		return "Mark as seen"
+	case ignoreNotification:
+		return "Ignore"
+	default:
+		return "Enter conversation"
+	}
+}
+
 func (m notificationsModel) View() string {
+	if m.selected >= 0 {
+		view := m.items[m.selected].label() + "\n\n"
+		for i, action := range m.actions() {
+			cursor := "  "
+			if i == m.actionCursor {
+				cursor = "> "
+			}
+			view += cursor + action.label() + "\n"
+		}
+		if m.updating {
+			view += "\nMarking notification as seen…"
+		} else if m.errorText != "" {
+			view += "\n" + m.errorText
+		}
+		return view + "\n\n↑/↓ to select • Enter to confirm • Esc to go back • Ctrl+C to quit"
+	}
 	view := "Notifications\n"
 	switch {
 	case m.loading:
@@ -129,16 +208,12 @@ func (m notificationsModel) View() string {
 	} else if m.errorText != "" {
 		view += "\n\n" + m.errorText
 	}
-	return view + "\n\n↑/↓ to select • Enter to mark seen • Esc for home • Ctrl+C to quit"
+	return view + "\n\n↑/↓ to select • Enter for options • Esc for home • Ctrl+C to quit"
 }
 
 const notificationPollInterval = 5 * time.Second
 
-func pollNotifications(userID, grpcPort string, seenMessageIDs map[string]struct{}) tea.Cmd {
-	seen := make(map[string]struct{}, len(seenMessageIDs))
-	for id := range seenMessageIDs {
-		seen[id] = struct{}{}
-	}
+func pollNotifications(userID, grpcPort string) tea.Cmd {
 	return func() tea.Msg {
 		conn, err := newGRPCClient("localhost:" + grpcPort)
 		if err != nil {
@@ -168,12 +243,6 @@ func pollNotifications(userID, grpcPort string, seenMessageIDs map[string]struct
 				firstResponseLogged = true
 			}
 			if message := response.GetMessage(); message != nil {
-				if _, displayed := seen[message.GetMessageId()]; displayed {
-					if _, err := client.UpdateMsgN10N(ctx, &notificationsv1.UpdateMsgN10NRequest{Item: &notificationsv1.MsgN10NItem{Id: message.GetId(), UserId: userID}}); err != nil {
-						return notificationsPollFailedMsg{err: err}
-					}
-					continue
-				}
 				items = append(items, notificationItem{kind: messageNotification, message: message})
 			} else if friend := response.GetFriend(); friend != nil {
 				items = append(items, notificationItem{kind: friendNotification, friend: friend})
@@ -187,7 +256,7 @@ func scheduleNotificationPoll() tea.Cmd {
 	return tea.Tick(notificationPollInterval, func(time.Time) tea.Msg { return notificationsPollTickMsg{} })
 }
 
-func updateNotification(userID, grpcPort string, index int, item notificationItem) tea.Cmd {
+func updateNotification(userID, grpcPort string, index int, item notificationItem, enterConversation bool) tea.Cmd {
 	return func() tea.Msg {
 		conn, err := newGRPCClient("localhost:" + grpcPort)
 		if err != nil {
@@ -208,6 +277,6 @@ func updateNotification(userID, grpcPort string, index int, item notificationIte
 				return notificationUpdateFailedMsg{err: err}
 			}
 		}
-		return notificationUpdatedMsg{index: index}
+		return notificationUpdatedMsg{index: index, enterConversation: enterConversation, authorID: item.message.GetAuthorId()}
 	}
 }

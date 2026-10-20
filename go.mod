@@ -12,7 +12,7 @@ require (
 	github.com/gocql/gocql v1.7.0
 	github.com/joho/godotenv v1.5.1
 	github.com/scylladb/gocqlx/v3 v3.0.4
-	github.com/tobib-dev/frnkstn-proto v0.0.0-20261016230614-8fc1ef25bada
+	github.com/tobib-dev/frnkstn-proto v0.0.0-20261020000410-7e9bc805660b
 	google.golang.org/grpc v1.79.3
 )
 

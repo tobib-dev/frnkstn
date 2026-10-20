@@ -106,8 +106,8 @@ github.com/scylladb/gocqlx/v3 v3.0.4 h1:37rMVFEUlsGGNYB7OLR7991KwBYR2WA5TU7wtduC
 github.com/scylladb/gocqlx/v3 v3.0.4/go.mod h1:3vBkGO+HRh/BYypLWXzurQ45u1BAO0VGBhg5VgperPY=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
-github.com/tobib-dev/frnkstn-proto v0.0.0-20261016230614-8fc1ef25bada h1:0p9zIkd0r54oaxfcpKckXXWWo+MEPBvwDXSI1v6qQlM=
-github.com/tobib-dev/frnkstn-proto v0.0.0-20261016230614-8fc1ef25bada/go.mod h1:XQwSJYzcvVNmDl2Edx7mOkaAMjrdRnKUa2EtUsSXraU=
+github.com/tobib-dev/frnkstn-proto v0.0.0-20261020000410-7e9bc805660b h1:zu3OUOtFEFCglMAMSzME3AFl+nRGwkHLsioB76IIQPQ=
+github.com/tobib-dev/frnkstn-proto v0.0.0-20261020000410-7e9bc805660b/go.mod h1:XQwSJYzcvVNmDl2Edx7mOkaAMjrdRnKUa2EtUsSXraU=
 github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e h1:JVG44RsyaB9T2KIHavMF/ppJZNG9ZpyihvCd0w101no=
 github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e/go.mod h1:RbqR21r5mrJuqunuUZ/Dhy/avygyECGrLceyNeo4LiM=
 go.opentelemetry.io/auto/sdk v1.2.1 h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=

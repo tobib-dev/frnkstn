@@ -19,12 +19,13 @@ import (
 type messagesTestServer struct {
 	dmsv1.UnimplementedDMServiceServer
 	friendsv1.UnimplementedFriendServiceServer
-	requestedUser string
-	requestedDM   string
-	subscribedDM  string
-	subscribedAt  time.Time
-	incomingID    string
-	sent          *dmsv1.DirectMessageItem
+	requestedUser  string
+	requestedDM    string
+	subscribedDM   string
+	subscribedAt   time.Time
+	incomingID     string
+	sent           *dmsv1.DirectMessageItem
+	readMessageIDs []string
 }
 
 func (s *messagesTestServer) GetMessagesByUser(_ context.Context, req *dmsv1.GetMessagesByUserRequest) (*dmsv1.GetMessagesByUserResponse, error) {
@@ -50,16 +51,21 @@ func (s *messagesTestServer) SendMessages(_ context.Context, req *dmsv1.SendMess
 func (s *messagesTestServer) GetMessages(_ context.Context, req *dmsv1.GetMessagesRequest) (*dmsv1.GetMessagesResponse, error) {
 	s.requestedDM = req.GetItem().GetDmId()
 	return &dmsv1.GetMessagesResponse{Items: []*dmsv1.DirectMessageItem{
-		{DmId: s.requestedDM, MessageId: gocql.TimeUUID().String(), AuthorId: "friend", Content: "hello from them"},
-		{DmId: s.requestedDM, MessageId: gocql.UUIDFromTime(time.Unix(2, 0)).String(), AuthorId: "user", Content: "hello from me"},
+		{DmId: s.requestedDM, MessageId: gocql.TimeUUID().String(), AuthorId: "friend", ReceiverId: "user", Content: "hello from them"},
+		{DmId: s.requestedDM, MessageId: gocql.UUIDFromTime(time.Unix(2, 0)).String(), AuthorId: "user", ReceiverId: "friend", Content: "hello from me"},
 	}}, nil
+}
+
+func (s *messagesTestServer) MarkMessagesRead(_ context.Context, req *dmsv1.MarkMessagesReadRequest) (*dmsv1.MarkMessagesReadResponse, error) {
+	s.readMessageIDs = append(s.readMessageIDs, req.GetMessageIds()...)
+	return &dmsv1.MarkMessagesReadResponse{}, nil
 }
 
 func (s *messagesTestServer) SubscribeMessages(req *dmsv1.SubscribeMessagesRequest, stream grpc.ServerStreamingServer[dmsv1.DirectMessageItem]) error {
 	s.subscribedDM = req.GetDmId()
 	s.subscribedAt = req.GetLastMsgTime().AsTime()
 	s.incomingID = gocql.UUIDFromTime(s.subscribedAt.Add(time.Second)).String()
-	return stream.Send(&dmsv1.DirectMessageItem{DmId: req.GetDmId(), MessageId: s.incomingID, AuthorId: "friend", Content: "live message"})
+	return stream.Send(&dmsv1.DirectMessageItem{DmId: req.GetDmId(), MessageId: s.incomingID, AuthorId: "friend", ReceiverId: "user", Content: "live message"})
 }
 
 func TestMessagesOptionLoadsMetadataAndStartsMessage(t *testing.T) {
@@ -160,6 +166,9 @@ func TestOpeningConversationDisplaysHistoryAndIncomingMessage(t *testing.T) {
 	if cmd == nil || model.subscription == nil {
 		t.Fatal("message subscription was not started")
 	}
+	if len(service.readMessageIDs) != 1 {
+		t.Fatalf("displayed incoming history was not marked read: %v", service.readMessageIDs)
+	}
 	model, cmd = model.Update(cmd())
 	if cmd == nil || service.subscribedDM != "friendship" {
 		t.Fatal("next stream receive was not scheduled")
@@ -174,10 +183,6 @@ func TestOpeningConversationDisplaysHistoryAndIncomingMessage(t *testing.T) {
 	if !model.selectedDM.GetLastMessageTime().AsTime().Equal(incomingTime) {
 		t.Fatalf("cursor was not advanced to incoming message: got %v want %v", model.selectedDM.GetLastMessageTime().AsTime(), incomingTime)
 	}
-	if len(model.seenMessageIDs) != 3 {
-		t.Fatalf("displayed messages were not recorded as seen: %v", model.seenMessageIDs)
-	}
-
 	view := model.View()
 	for _, text := range []string{"Conversation with bob", "You: hello from me •", "bob: hello from them •", "bob: live message •"} {
 		if !strings.Contains(view, text) {
@@ -186,6 +191,10 @@ func TestOpeningConversationDisplaysHistoryAndIncomingMessage(t *testing.T) {
 	}
 	if !strings.Contains(view, "Message: ") {
 		t.Fatalf("conversation is missing the reply input: %q", view)
+	}
+	model, _ = model.Update(cmd())
+	if len(service.readMessageIDs) != 2 || service.readMessageIDs[1] != service.incomingID {
+		t.Fatalf("displayed live message was not marked read: %v", service.readMessageIDs)
 	}
 
 	model.input.SetValue("reply from conversation")

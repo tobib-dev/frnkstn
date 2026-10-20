@@ -12,6 +12,7 @@ type NotificationStore interface {
 	AddMessageNotification(context.Context, MessageNotification) error
 	GetMessageNotification(context.Context, gocql.UUID) ([]MessageNotification, error)
 	UpdateMessageNotification(context.Context, gocql.UUID, gocql.UUID) error
+	DeleteMessageNotifications(context.Context, gocql.UUID, []gocql.UUID) error
 	AddFriendNotification(context.Context, FriendNotification) error
 	GetFriendNotification(context.Context, gocql.UUID) ([]FriendNotification, error)
 	UpdateFriendNotification(context.Context, gocql.UUID, gocql.UUID) error
@@ -93,24 +94,43 @@ func (db *DB) GetMessageNotification(ctx context.Context, userID gocql.UUID) ([]
 }
 
 func (db *DB) UpdateMessageNotification(ctx context.Context, userID, notificationID gocql.UUID) error {
-	notification := MessageNotification{UserID: userID, NotificationID: notificationID}
-	if err := db.Session.Query(msgN10nTable.Get()).
-		WithContext(ctx).
-		BindStruct(notification).
-		GetRelease(&notification); err != nil {
-		return err
-	}
+	notification := MessageNotification{UserID: userID, NotificationID: notificationID, Seen: false}
+	return db.Session.Query(msgN10nTable.Delete()).WithContext(ctx).BindStruct(notification).ExecRelease()
+}
 
-	// shortcut: reinserting resets the table TTL; preserve remaining TTL if exact expiry matters.
-	batch := db.Session.ContextBatch(ctx, gocql.LoggedBatch)
-	if err := batch.BindStruct(msgN10nTable.DeleteQuery(*db.Session), notification); err != nil {
+const notificationDeleteBatchSize = 25
+
+func (db *DB) DeleteMessageNotifications(ctx context.Context, userID gocql.UUID, messageIDs []gocql.UUID) error {
+	if len(messageIDs) == 0 {
+		return nil
+	}
+	notifications, err := db.GetMessageNotification(ctx, userID)
+	if err != nil {
 		return err
 	}
-	notification.Seen = true
-	if err := batch.BindStruct(msgN10nTable.InsertQuery(*db.Session), notification); err != nil {
-		return err
+	ids := make(map[gocql.UUID]struct{}, len(messageIDs))
+	for _, messageID := range messageIDs {
+		ids[messageID] = struct{}{}
 	}
-	return db.Session.ExecuteBatch(batch)
+	matches := make([]MessageNotification, 0, len(messageIDs))
+	for _, notification := range notifications {
+		if _, ok := ids[notification.MessageID]; ok {
+			matches = append(matches, notification)
+		}
+	}
+	for start := 0; start < len(matches); start += notificationDeleteBatchSize {
+		end := min(start+notificationDeleteBatchSize, len(matches))
+		batch := db.Session.ContextBatch(ctx, gocql.LoggedBatch)
+		for _, notification := range matches[start:end] {
+			if err := batch.BindStruct(msgN10nTable.DeleteQuery(*db.Session), notification); err != nil {
+				return err
+			}
+		}
+		if err := db.Session.ExecuteBatch(batch); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (db *DB) AddFriendNotification(ctx context.Context, friendN10n FriendNotification) error {

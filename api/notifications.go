@@ -31,8 +31,11 @@ func (b rabbitNotificationBroker) Publish(ctx context.Context, exchange, routing
 }
 
 type notificationService struct {
-	cfg    *Config
-	store  db.NotificationStore
+	cfg      *Config
+	store    db.NotificationStore
+	messages interface {
+		GetMessageByID(context.Context, gocql.UUID) (db.DM, error)
+	}
 	broker notificationBroker
 	ntfnV1.UnimplementedN10NServiceServer
 }
@@ -44,7 +47,7 @@ const (
 )
 
 func NewNotificationService(cfg *Config) *notificationService {
-	service := &notificationService{cfg: cfg, store: &cfg.db.session}
+	service := &notificationService{cfg: cfg, store: &cfg.db.session, messages: &cfg.db.session}
 	if cfg.brokerURI != "" {
 		service.broker = rabbitNotificationBroker{uri: cfg.brokerURI}
 	}
@@ -93,6 +96,19 @@ func (s *notificationService) AddMsgN10N(ctx context.Context, req *ntfnV1.AddMsg
 	if err := s.store.AddMessageNotification(ctx, notification); err != nil {
 		logger.Error("failed to add message notification", "error", err)
 		return nil, status.Error(codes.Internal, "could not add message notification")
+	}
+	if s.messages != nil {
+		message, err := s.messages.GetMessageByID(ctx, messageID)
+		if err != nil {
+			logger.Error("failed to check message read status", "error", err)
+			return nil, status.Error(codes.Internal, "could not add message notification")
+		}
+		if message.Read {
+			if err := s.store.UpdateMessageNotification(ctx, userID, notificationID); err != nil {
+				logger.Error("failed to clear notification for read message", "error", err)
+				return nil, status.Error(codes.Internal, "could not add message notification")
+			}
+		}
 	}
 	return &emptypb.Empty{}, nil
 }
