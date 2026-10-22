@@ -23,10 +23,11 @@ import (
 )
 
 type Config struct {
-	server    GRPCServerConfig
-	db        DBConfig
-	brokerURI string
-	logger    *slog.Logger
+	server     GRPCServerConfig
+	db         DBConfig
+	brokerURI  string
+	signingKey string
+	logger     *slog.Logger
 }
 
 type GRPCServerConfig struct {
@@ -41,6 +42,7 @@ type DBConfig struct {
 func main() {
 	godotenv.Load("../.env")
 	logFile := os.Getenv("LOGFILE")
+	jwtKey := os.Getenv("SIGNING_KEY")
 	dbPort := os.Getenv("DB_PORT")
 	dbUser := os.Getenv("DB_USER")
 	dbPassword := os.Getenv("DB_PASSWORD")
@@ -56,7 +58,8 @@ func main() {
 		server: GRPCServerConfig{
 			port: apiPort,
 		},
-		brokerURI: queueBrokerURI,
+		brokerURI:  queueBrokerURI,
+		signingKey: jwtKey,
 	}
 
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%v", cfg.server.port))

@@ -62,7 +62,7 @@ func getGitHubUser(accessToken string) (github.User, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
 	defer cancel()
 
-	log.Info("getGitHubUser", "access_token", accessToken)
+	log.Info("getGitHubUser")
 	return github.GetUser(ctx, accessToken)
 }
 
