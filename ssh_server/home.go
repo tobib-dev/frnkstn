@@ -128,7 +128,7 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		}
 		return m, scheduleNotificationPoll()
 	case notificationsPollTickMsg:
-		return m, pollNotifications(m.user.userID, m.grpcPort)
+		return m, pollNotifications(m.session.internalAccessToken, m.grpcPort)
 	case enterNotificationConversationMsg:
 		metadata := m.messages.metadataForAuthor(msg.authorID)
 		if metadata == nil {
@@ -271,30 +271,30 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		case messagesHomeItem:
 			m.state = homeViewingMessages
 			if m.messages.userID == "" {
-				m.messages = newMessagesModel(m.list.Width(), m.list.Height(), m.user.userID, m.grpcPort)
-				return m, fetchMessagesByUser(m.user.userID, m.grpcPort)
+				m.messages = newMessagesModel(m.list.Width(), m.list.Height(), m.user.userID, m.session.internalAccessToken, m.grpcPort)
+				return m, fetchMessagesByUser(m.session.internalAccessToken, m.grpcPort)
 			}
 			return m, nil
 		case addFriendHomeItem:
 			m.state = homeAddingFriend
-			m.addFriend = newAddFriendModel(m.user.userID, m.grpcPort)
+			m.addFriend = newAddFriendModel(m.user.userID, m.session.internalAccessToken, m.grpcPort)
 			return m, m.addFriend.input.Focus()
 		case notificationsHomeItem:
 			m.state = homeViewingNotifications
-			m.notifications = newNotificationsModel(m.user.userID, m.grpcPort)
+			m.notifications = newNotificationsModel(m.user.userID, m.session.internalAccessToken, m.grpcPort)
 			if m.notificationPolling {
 				m.notifications.items = m.notificationItems
 				m.notifications.loading = false
 				return m, nil
 			}
 			m.notificationPolling = true
-			return m, pollNotifications(m.user.userID, m.grpcPort)
+			return m, pollNotifications(m.session.internalAccessToken, m.grpcPort)
 		case profileHomeItem:
 			m.state = homeEditingProfile
-			m.profile = newProfileModel(m.user, m.grpcPort)
+			m.profile = newProfileModel(m.user, m.session.internalAccessToken, m.grpcPort)
 			var cmd tea.Cmd
 			m.profile, cmd = m.profile.focusName()
-			return m, tea.Batch(cmd, fetchPendingFriendRequests(m.user.userID, m.grpcPort))
+			return m, tea.Batch(cmd, fetchPendingFriendRequests(m.session.internalAccessToken, m.grpcPort))
 		case signOutHomeItem:
 			return m.signOut(false)
 		case exitHomeItem:
@@ -360,7 +360,7 @@ func (m homeModel) signOut(quit bool) (homeModel, tea.Cmd) {
 	}
 	m.state = homeSigningOut
 	return m, func() tea.Msg {
-		_, err := updateSession(m.session.sessionID, m.session.userID, m.grpcPort)
+		_, err := updateSession(m.session.sessionID, m.session.internalAccessToken, m.grpcPort)
 		if err != nil {
 			return signOutFailureMsg{err: err}
 		}

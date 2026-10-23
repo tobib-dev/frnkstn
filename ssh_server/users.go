@@ -66,7 +66,7 @@ func getGitHubUser(accessToken string) (github.User, error) {
 	return github.GetUser(ctx, accessToken)
 }
 
-func updateUser(user userInfo, grpcPort string) (userInfo, error) {
+func updateUser(user userInfo, accessToken, grpcPort string) (userInfo, error) {
 	if user.userID == "" {
 		return userInfo{}, fmt.Errorf("cannot update profile without user ID")
 	}
@@ -77,7 +77,8 @@ func updateUser(user userInfo, grpcPort string) (userInfo, error) {
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
 	defer cancel()
-	response, err := usersV1.NewUserServiceClient(conn).UpdateUser(ctx, &usersV1.UpdateUserRequest{UserId: user.userID, Name: user.name, Username: user.username})
+	ctx = bearerContext(ctx, accessToken)
+	response, err := usersV1.NewUserServiceClient(conn).UpdateUser(ctx, &usersV1.UpdateUserRequest{Name: user.name, Username: user.username})
 	if err != nil {
 		return userInfo{}, fmt.Errorf("update user: %w", err)
 	}
@@ -87,9 +88,9 @@ func updateUser(user userInfo, grpcPort string) (userInfo, error) {
 	return userInfo{userID: response.UserId, name: response.Name, username: response.Username}, nil
 }
 
-func deleteUser(userID, grpcPort string) error {
-	if userID == "" {
-		return fmt.Errorf("cannot delete account without user ID")
+func deleteUser(accessToken, grpcPort string) error {
+	if accessToken == "" {
+		return fmt.Errorf("cannot delete account without access token")
 	}
 	conn, err := newGRPCClient("localhost:" + grpcPort)
 	if err != nil {
@@ -98,7 +99,8 @@ func deleteUser(userID, grpcPort string) error {
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
 	defer cancel()
-	_, err = usersV1.NewUserServiceClient(conn).DeleteUser(ctx, &usersV1.DeleteUserRequest{UserId: userID})
+	ctx = bearerContext(ctx, accessToken)
+	_, err = usersV1.NewUserServiceClient(conn).DeleteUser(ctx, &usersV1.DeleteUserRequest{})
 	if err != nil {
 		return fmt.Errorf("delete user: %w", err)
 	}

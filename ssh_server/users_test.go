@@ -62,7 +62,7 @@ func TestLookupFailureDoesNotStartAccountOrSessionCreation(t *testing.T) {
 				t.Fatal(err)
 			}
 			m := newSignInModel(80, 24, "client", port)
-			m, cmd := m.Update(signInSuccessMsg{token: tokenInfo{AccessToken: "test-token"}})
+			m, cmd := m.Update(signInSuccessMsg{token: githubTokenInfo{AccessToken: "test-token"}})
 			msg := cmd()
 			if _, ok := msg.(signInFailureMsg); !ok {
 				t.Fatalf("lookup failure was treated as a missing account: %T", msg)

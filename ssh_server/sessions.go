@@ -10,12 +10,11 @@ import (
 )
 
 type sessionInfo struct {
-	sessionID   string
-	userID      string
-	signedOutAt time.Time
+	sessionID, userID, internalAccessToken, internalRefreshToken string
+	signedOutAt                                                  time.Time
 }
 
-func createSession(token tokenInfo, userID, grpcPort string) (sessionInfo, error) {
+func createSession(token githubTokenInfo, userID, grpcPort string) (sessionInfo, error) {
 	if userID == "" {
 		return sessionInfo{}, fmt.Errorf("cannot create session without user ID")
 	}
@@ -30,27 +29,28 @@ func createSession(token tokenInfo, userID, grpcPort string) (sessionInfo, error
 	defer cancel()
 	client := sessionsV1.NewSessionServiceClient(conn)
 	resp, err := client.CreateSession(ctx, &sessionsV1.CreateSessionRequest{
-		UserId:                userID,
-		AccessToken:           token.AccessToken,
-		AccessTokenExpiresAt:  strconv.Itoa(token.ExpiresIn),
-		RefreshToken:          token.RefreshToken,
-		RefreshTokenExpiresAt: strconv.Itoa(token.RefreshTokenExpiresIn),
+		GithubAccessToken:           token.AccessToken,
+		GithubAccessTokenExpiresAt:  strconv.Itoa(token.ExpiresIn),
+		GithubRefreshToken:          token.RefreshToken,
+		GithubRefreshTokenExpiresAt: strconv.Itoa(token.RefreshTokenExpiresIn),
 	})
 	if err != nil {
 		return sessionInfo{}, fmt.Errorf("failed to create session: %w", err)
 	}
-	if resp.SessionId == "" || resp.UserId != userID {
+	if resp.SessionId == "" || resp.UserId != userID || resp.InternalAccessToken == "" || resp.InternalRefreshToken == "" {
 		return sessionInfo{}, fmt.Errorf("invalid session response")
 	}
 	sessInfo := sessionInfo{
-		sessionID: resp.SessionId,
-		userID:    resp.UserId,
+		sessionID:            resp.SessionId,
+		userID:               resp.UserId,
+		internalAccessToken:  resp.InternalAccessToken,
+		internalRefreshToken: resp.InternalRefreshToken,
 	}
 
 	return sessInfo, nil
 }
 
-func getSession(sessionID, grpcPort string) (sessionInfo, error) {
+func getSession(sessionID, internalAccessToken, grpcPort string) (sessionInfo, error) {
 	grpcHost := "localhost:" + grpcPort
 	conn, err := newGRPCClient(grpcHost)
 	if err != nil {
@@ -60,6 +60,7 @@ func getSession(sessionID, grpcPort string) (sessionInfo, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
 	defer cancel()
+	ctx = bearerContext(ctx, internalAccessToken)
 	client := sessionsV1.NewSessionServiceClient(conn)
 	resp, err := client.GetSession(ctx, &sessionsV1.GetSessionRequest{
 		SessionId: sessionID,
@@ -82,9 +83,9 @@ func getSession(sessionID, grpcPort string) (sessionInfo, error) {
 	return sessInfo, nil
 }
 
-func updateSession(sessionID, userID, grpcPort string) (sessionInfo, error) {
-	if sessionID == "" || userID == "" {
-		return sessionInfo{}, fmt.Errorf("cannot sign out without session ID and user ID")
+func updateSession(sessionID, internalAccessToken, grpcPort string) (sessionInfo, error) {
+	if sessionID == "" || internalAccessToken == "" {
+		return sessionInfo{}, fmt.Errorf("cannot sign out without session ID and access token")
 	}
 	grpcHost := "localhost:" + grpcPort
 	conn, err := newGRPCClient(grpcHost)
@@ -95,10 +96,10 @@ func updateSession(sessionID, userID, grpcPort string) (sessionInfo, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
 	defer cancel()
+	ctx = bearerContext(ctx, internalAccessToken)
 	client := sessionsV1.NewSessionServiceClient(conn)
 	resp, err := client.UpdateSession(ctx, &sessionsV1.UpdateSessionRequest{
 		SessionId: sessionID,
-		UserId:    userID,
 	})
 	if err != nil {
 		return sessionInfo{}, fmt.Errorf("failed to update session: %w", err)

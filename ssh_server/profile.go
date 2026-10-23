@@ -16,19 +16,19 @@ type accountDeletedMsg struct{}
 type accountDeleteFailedMsg struct{ err error }
 
 type profileModel struct {
-	name, username   textinput.Model
-	userID, grpcPort string
-	saving           bool
-	confirmDelete    bool
-	deleting         bool
-	loadingRequests  bool
-	pendingRequests  []*friendsv1.GetFriendsItem
-	requestCursor    int
-	selectedRequest  *friendsv1.GetFriendsItem
-	actionCursor     int
-	acting           bool
-	requestsError    string
-	errorText        string
+	name, username                textinput.Model
+	userID, accessToken, grpcPort string
+	saving                        bool
+	confirmDelete                 bool
+	deleting                      bool
+	loadingRequests               bool
+	pendingRequests               []*friendsv1.GetFriendsItem
+	requestCursor                 int
+	selectedRequest               *friendsv1.GetFriendsItem
+	actionCursor                  int
+	acting                        bool
+	requestsError                 string
+	errorText                     string
 }
 
 func (m profileModel) focusName() (profileModel, tea.Cmd) {
@@ -45,14 +45,14 @@ func (m profileModel) focusUsername() (profileModel, tea.Cmd) {
 	return m, cmd
 }
 
-func newProfileModel(user userInfo, grpcPort string) profileModel {
+func newProfileModel(user userInfo, accessToken, grpcPort string) profileModel {
 	name, username := textinput.New(), textinput.New()
 	name.Prompt, username.Prompt = "Name: ", "Username: "
 	name.SetVirtualCursor(true)
 	username.SetVirtualCursor(true)
 	name.SetValue(user.name)
 	username.SetValue(user.username)
-	return profileModel{name: name, username: username, userID: user.userID, grpcPort: grpcPort, loadingRequests: true, requestCursor: -1}
+	return profileModel{name: name, username: username, userID: user.userID, accessToken: accessToken, grpcPort: grpcPort, loadingRequests: true, requestCursor: -1}
 }
 
 func (m profileModel) Update(msg tea.Msg) (profileModel, tea.Cmd) {
@@ -127,7 +127,7 @@ func (m profileModel) Update(msg tea.Msg) (profileModel, tea.Cmd) {
 				m.confirmDelete = false
 				m.deleting = true
 				return m, func() tea.Msg {
-					if err := deleteUser(m.userID, m.grpcPort); err != nil {
+					if err := deleteUser(m.accessToken, m.grpcPort); err != nil {
 						return accountDeleteFailedMsg{err: err}
 					}
 					return accountDeletedMsg{}
@@ -176,7 +176,7 @@ func (m profileModel) Update(msg tea.Msg) (profileModel, tea.Cmd) {
 			m.name.Blur()
 			m.username.Blur()
 			return m, func() tea.Msg {
-				user, err := updateUser(userInfo{userID: m.userID, name: name, username: username}, m.grpcPort)
+				user, err := updateUser(userInfo{userID: m.userID, name: name, username: username}, m.accessToken, m.grpcPort)
 				if err != nil {
 					return profileFailedMsg{err: err}
 				}
@@ -222,7 +222,7 @@ func (m profileModel) updateSelectedRequest(msg tea.Msg) (profileModel, tea.Cmd)
 		m.acting, m.errorText = true, ""
 		request := m.selectedRequest
 		return m, func() tea.Msg {
-			if err := resolveFriendRequest(m.userID, m.grpcPort, request, action.action); err != nil {
+			if err := resolveFriendRequest(m.userID, m.accessToken, m.grpcPort, request, action.action); err != nil {
 				return friendRequestFailedMsg{err: err}
 			}
 			return friendRequestResolvedMsg{message: action.message}

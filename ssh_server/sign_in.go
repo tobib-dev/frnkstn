@@ -25,7 +25,7 @@ const (
 	signInUsername
 )
 
-type tokenInfo struct {
+type githubTokenInfo struct {
 	AccessToken           string
 	ExpiresIn             int
 	RefreshToken          string
@@ -37,7 +37,7 @@ type signInNewUserMsg struct{ identity github.User }
 
 type signInSessionMsg struct{ session sessionInfo }
 
-type signInSuccessMsg struct{ token tokenInfo }
+type signInSuccessMsg struct{ token githubTokenInfo }
 type signInFailureMsg struct{ error error }
 type signInDeviceAuthMsg struct{ response GHResponse }
 type switchToSignInMsg struct{ authLink string }
@@ -67,7 +67,7 @@ type signInModel struct {
 	state      signInState
 	list       list.Model
 	authLink   string
-	token      tokenInfo
+	token      githubTokenInfo
 	grpcPort   string
 	session    sessionInfo
 	lastErr    error
@@ -117,7 +117,7 @@ func (m signInModel) Update(msg tea.Msg) (signInModel, tea.Cmd) {
 				return signInFailureMsg{error: err}
 			}
 
-			tkn := tokenInfo{
+			tkn := githubTokenInfo{
 				AccessToken:           response.AccessToken,
 				ExpiresIn:             response.ExpiresIn,
 				RefreshToken:          response.RefreshToken,

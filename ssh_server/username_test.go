@@ -44,10 +44,10 @@ func (s *usernameTestServer) GetUserByGHID(_ context.Context, req *usersV1.GetUs
 }
 func (s *usernameTestServer) CreateSession(_ context.Context, req *sessionsV1.CreateSessionRequest) (*sessionsV1.CreateSessionResponse, error) {
 	s.calls = append(s.calls, "create session")
-	if req.UserId != "new-user" || req.AccessToken != "test-token" {
-		return nil, status.Error(codes.InvalidArgument, "wrong user or token")
+	if req.GithubAccessToken != "test-token" {
+		return nil, status.Error(codes.InvalidArgument, "wrong token")
 	}
-	return &sessionsV1.CreateSessionResponse{SessionId: "session", UserId: req.UserId}, nil
+	return &sessionsV1.CreateSessionResponse{SessionId: "session", UserId: "new-user", InternalAccessToken: "access", InternalRefreshToken: "refresh"}, nil
 }
 
 func TestNewUserCreatesAccountBeforeHome(t *testing.T) {
@@ -67,7 +67,7 @@ func TestNewUserCreatesAccountBeforeHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := newSignInModel(80, 24, "client", port)
-	m, cmd := m.Update(signInSuccessMsg{token: tokenInfo{AccessToken: "test-token"}})
+	m, cmd := m.Update(signInSuccessMsg{token: githubTokenInfo{AccessToken: "test-token"}})
 	m, _ = m.Update(cmd())
 	if !reflect.DeepEqual(users.calls, []string{"get user"}) {
 		t.Fatalf("session created before account: %v", users.calls)

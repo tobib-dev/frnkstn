@@ -34,7 +34,7 @@ func (s *profileTestServer) UpdateUser(_ context.Context, req *usersV1.UpdateUse
 	if s.fail {
 		return nil, status.Error(codes.AlreadyExists, "taken")
 	}
-	return &usersV1.UpdateUserResponse{UserId: req.UserId, Name: req.Name, Username: req.Username}, nil
+	return &usersV1.UpdateUserResponse{UserId: "user", Name: req.Name, Username: req.Username}, nil
 }
 
 func TestProfileSave(t *testing.T) {
@@ -57,7 +57,7 @@ func TestProfileSave(t *testing.T) {
 			original := userInfo{userID: "user", name: "Alice", username: "alice"}
 			m := mainModel{home: newHomeModel(80, 24), signIn: newSignInModel(80, 24, "client", port)}
 			m.signIn.user = original
-			m.signIn.session = sessionInfo{sessionID: "session", userID: "user"}
+			m.signIn.session = sessionInfo{sessionID: "session", userID: "user", internalAccessToken: "access"}
 			updated, _ := m.Update(SwitchToHomeMsg{})
 			m = updated.(mainModel)
 			m.home.list.Select(4)
@@ -92,7 +92,7 @@ func TestProfileSave(t *testing.T) {
 			}
 			result := cmd()
 			req := <-service.requests
-			if req.UserId != "user" || req.Name != "Alice Example" || req.Username != "alice19" {
+			if req.Name != "Alice Example" || req.Username != "alice19" {
 				t.Fatalf("incorrect update: %v", req)
 			}
 			updated, _ = m.Update(result)
@@ -142,7 +142,7 @@ func TestProfileDeleteAccount(t *testing.T) {
 
 			m := mainModel{width: 80, height: 24, home: newHomeModel(80, 24), signIn: newSignInModel(80, 24, "client", port)}
 			m.signIn.user = userInfo{userID: "user", name: "Alice", username: "alice"}
-			m.signIn.session = sessionInfo{sessionID: "session", userID: "user"}
+			m.signIn.session = sessionInfo{sessionID: "session", userID: "user", internalAccessToken: "access"}
 			updated, _ := m.Update(SwitchToHomeMsg{})
 			m = updated.(mainModel)
 			m.home.list.Select(4)
@@ -159,10 +159,7 @@ func TestProfileDeleteAccount(t *testing.T) {
 				t.Fatal("account deletion did not start")
 			}
 			result := cmd()
-			request := <-service.deletes
-			if request.UserId != "user" {
-				t.Fatalf("incorrect delete request: %v", request)
-			}
+			<-service.deletes
 			updated, cmd = m.Update(result)
 			m = updated.(mainModel)
 			if deleteFail {

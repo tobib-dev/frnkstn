@@ -146,7 +146,7 @@ func TestMessageNotificationCanBeIgnoredOrOpenConversation(t *testing.T) {
 	m := newHomeModel(80, 24)
 	m.user = userInfo{userID: "user"}
 	m.grpcPort = port
-	m.messages = newMessagesModel(80, 24, "user", port)
+	m.messages = newMessagesModel(80, 24, "user", "", port)
 	m.messages, _ = m.messages.Update(messageFriendsLoadedMsg{items: []*friendsv1.GetFriendsItem{{
 		UserId: "user", FriendshipId: "friendship", FriendId: "friend", Status: "accepted",
 	}}})

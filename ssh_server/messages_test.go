@@ -19,17 +19,17 @@ import (
 type messagesTestServer struct {
 	dmsv1.UnimplementedDMServiceServer
 	friendsv1.UnimplementedFriendServiceServer
-	requestedUser  string
-	requestedDM    string
-	subscribedDM   string
-	subscribedAt   time.Time
-	incomingID     string
-	sent           *dmsv1.DirectMessageItem
-	readMessageIDs []string
+	requestedMessages bool
+	requestedDM       string
+	subscribedDM      string
+	subscribedAt      time.Time
+	incomingID        string
+	sent              *dmsv1.DirectMessageItem
+	readMessageIDs    []string
 }
 
 func (s *messagesTestServer) GetMessagesByUser(_ context.Context, req *dmsv1.GetMessagesByUserRequest) (*dmsv1.GetMessagesByUserResponse, error) {
-	s.requestedUser = req.GetUserId()
+	s.requestedMessages = true
 	return &dmsv1.GetMessagesByUserResponse{Items: []*dmsv1.DirectMessageMetadata{{
 		DmId: "existing-friendship", LastMessageTime: timestamppb.New(time.Unix(1, 0)),
 	}}}, nil
@@ -37,15 +37,20 @@ func (s *messagesTestServer) GetMessagesByUser(_ context.Context, req *dmsv1.Get
 
 func (s *messagesTestServer) GetFriends(_ context.Context, req *friendsv1.GetFriendsRequest) (*friendsv1.GetFriendsResponse, error) {
 	return &friendsv1.GetFriendsResponse{Items: []*friendsv1.GetFriendsItem{
-		{UserId: req.GetUserId(), FriendshipId: "new-friendship", FriendId: "friend", FriendUsername: "bob", Status: "accepted"},
-		{UserId: req.GetUserId(), FriendshipId: "existing-friendship", FriendId: "existing-friend", FriendUsername: "alice", Status: "accepted"},
+		{UserId: "user", FriendshipId: "new-friendship", FriendId: "friend", FriendUsername: "bob", Status: "accepted"},
+		{UserId: "user", FriendshipId: "existing-friendship", FriendId: "existing-friend", FriendUsername: "alice", Status: "accepted"},
 	}}, nil
 }
 
 func (s *messagesTestServer) SendMessages(_ context.Context, req *dmsv1.SendMessagesRequest) (*dmsv1.SendMessagesResponse, error) {
 	s.sent = req.GetItem()
-	s.sent.MessageId = gocql.TimeUUID().String()
-	return &dmsv1.SendMessagesResponse{Item: req.GetItem()}, nil
+	return &dmsv1.SendMessagesResponse{Item: &dmsv1.DirectMessageItem{
+		DmId:       s.sent.GetDmId(),
+		MessageId:  gocql.TimeUUID().String(),
+		AuthorId:   "user",
+		ReceiverId: s.sent.GetReceiverId(),
+		Content:    s.sent.GetContent(),
+	}}, nil
 }
 
 func (s *messagesTestServer) GetMessages(_ context.Context, req *dmsv1.GetMessagesRequest) (*dmsv1.GetMessagesResponse, error) {
@@ -91,8 +96,8 @@ func TestMessagesOptionLoadsMetadataAndStartsMessage(t *testing.T) {
 	}
 	home, _ = home.Update(cmd())
 	view := home.View().Content
-	if service.requestedUser != "user" || !strings.Contains(view, "New Message") || !strings.Contains(view, "existing-friendship") {
-		t.Fatalf("messages were not loaded: user=%q view=%q", service.requestedUser, view)
+	if !service.requestedMessages || !strings.Contains(view, "New Message") || !strings.Contains(view, "existing-friendship") {
+		t.Fatalf("messages were not loaded: requested=%v view=%q", service.requestedMessages, view)
 	}
 
 	home, cmd = home.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -145,7 +150,7 @@ func TestOpeningConversationDisplaysHistoryAndIncomingMessage(t *testing.T) {
 	go server.Serve(listener)
 	_, port, _ := net.SplitHostPort(listener.Addr().String())
 
-	model := newMessagesModel(80, 24, "user", port)
+	model := newMessagesModel(80, 24, "user", "", port)
 	model, _ = model.Update(messageFriendsLoadedMsg{items: []*friendsv1.GetFriendsItem{{
 		UserId: "user", FriendshipId: "friendship", FriendId: "friend", FriendUsername: "bob", Status: "accepted",
 	}}})

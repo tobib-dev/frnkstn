@@ -25,7 +25,7 @@ func (s *signOutTestServer) UpdateSession(_ context.Context, req *sessionsV1.Upd
 	if s.fail {
 		return nil, status.Error(codes.Unavailable, "unavailable")
 	}
-	return &sessionsV1.UpdateSessionResponse{SessionId: req.SessionId, UserId: req.UserId, SignedOutAt: time.Now().Format(time.RFC3339Nano)}, nil
+	return &sessionsV1.UpdateSessionResponse{SessionId: req.SessionId, UserId: "user", SignedOutAt: time.Now().Format(time.RFC3339Nano)}, nil
 }
 
 func TestHomeSignOut(t *testing.T) {
@@ -57,8 +57,8 @@ func TestHomeSignOut(t *testing.T) {
 				go server.Serve(listener)
 				_, port, _ := net.SplitHostPort(listener.Addr().String())
 				m := mainModel{width: 80, height: 24, signIn: newSignInModel(80, 24, "client", port), home: newHomeModel(80, 24)}
-				m.signIn.session = sessionInfo{sessionID: "session", userID: "user"}
-				m.signIn.token = tokenInfo{AccessToken: "access", RefreshToken: "refresh"}
+				m.signIn.session = sessionInfo{sessionID: "session", userID: "user", internalAccessToken: "access"}
+				m.signIn.token = githubTokenInfo{AccessToken: "access", RefreshToken: "refresh"}
 				m.signIn.user = userInfo{userID: "user"}
 				updated, _ := m.Update(SwitchToHomeMsg{})
 				m = updated.(mainModel)
@@ -74,7 +74,7 @@ func TestHomeSignOut(t *testing.T) {
 				}
 				result := cmd()
 				req := <-service.requests
-				if req.SessionId != "session" || req.UserId != "user" {
+				if req.SessionId != "session" {
 					t.Fatalf("incorrect IDs: %v", req)
 				}
 				updated, after := pending.Update(result)
@@ -96,7 +96,7 @@ func TestHomeSignOut(t *testing.T) {
 							t.Fatal("successful sign-out did not quit")
 						}
 					}
-					if done.state != signInView || done.signIn.token != (tokenInfo{}) || done.signIn.session != (sessionInfo{}) || done.signIn.user != (userInfo{}) || done.home.session != (sessionInfo{}) {
+					if done.state != signInView || done.signIn.token != (githubTokenInfo{}) || done.signIn.session != (sessionInfo{}) || done.signIn.user != (userInfo{}) || done.home.session != (sessionInfo{}) {
 						t.Fatal("successful sign-out did not clear credentials and return to sign-in")
 					}
 					if done.signIn.grpcPort != port || done.signIn.clientID != "client" {

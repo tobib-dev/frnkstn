@@ -22,10 +22,10 @@ type addFriendTestServer struct {
 	fail    bool
 }
 
-func (s *addFriendTestServer) GetFriends(_ context.Context, req *friendsv1.GetFriendsRequest) (*friendsv1.GetFriendsResponse, error) {
+func (s *addFriendTestServer) GetFriends(_ context.Context, _ *friendsv1.GetFriendsRequest) (*friendsv1.GetFriendsResponse, error) {
 	return &friendsv1.GetFriendsResponse{Items: []*friendsv1.GetFriendsItem{
-		{UserId: req.UserId, FriendshipId: "pending-friendship", FriendId: "pending-friend", FriendUsername: "bob", Status: "pending"},
-		{UserId: req.UserId, FriendshipId: "accepted-friendship", FriendId: "accepted-friend", FriendUsername: "carol", Status: "accepted"},
+		{UserId: "user", FriendshipId: "pending-friendship", FriendId: "pending-friend", FriendUsername: "bob", Status: "pending"},
+		{UserId: "user", FriendshipId: "accepted-friendship", FriendId: "accepted-friend", FriendUsername: "carol", Status: "accepted"},
 	}}, nil
 }
 
@@ -98,7 +98,7 @@ func TestHomeAddFriend(t *testing.T) {
 				}
 				return
 			}
-			if service.request == nil || service.request.UserId != "user" || service.request.FriendId != "friend" {
+			if service.request == nil || service.request.FriendId != "friend" {
 				t.Fatalf("incorrect friend request: %+v", service.request)
 			}
 			if m.state != homeReady {
@@ -120,7 +120,7 @@ func TestProfileDisplaysUnrespondedRequests(t *testing.T) {
 	go server.Serve(listener)
 	_, port, _ := net.SplitHostPort(listener.Addr().String())
 
-	model := newProfileModel(userInfo{userID: "user"}, port)
+	model := newProfileModel(userInfo{userID: "user"}, "", port)
 	msg := fetchPendingFriendRequests("user", port)()
 	model, _ = model.Update(msg)
 	view := model.View()
@@ -158,7 +158,7 @@ func TestSelectAndResolveUnrespondedRequest(t *testing.T) {
 			service.action = ""
 			m := newHomeModel(80, 24)
 			m.state = homeEditingProfile
-			m.profile = newProfileModel(userInfo{userID: "user"}, port)
+			m.profile = newProfileModel(userInfo{userID: "user"}, "", port)
 			m.profile, _ = m.profile.focusName()
 			m.profile.loadingRequests = false
 			friendID := "user"
@@ -192,7 +192,7 @@ func TestSelectAndResolveUnrespondedRequest(t *testing.T) {
 
 	m := newHomeModel(80, 24)
 	m.state = homeEditingProfile
-	m.profile = newProfileModel(userInfo{userID: "user"}, port)
+	m.profile = newProfileModel(userInfo{userID: "user"}, "", port)
 	m.profile.selectedRequest = &friendsv1.GetFriendsItem{UserId: "user"}
 	m.profile.actionCursor = 1
 	m, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})

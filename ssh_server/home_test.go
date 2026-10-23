@@ -21,8 +21,8 @@ type signInTestSessionServer struct {
 	dmsv1.UnimplementedDMServiceServer
 	friendsv1.UnimplementedFriendServiceServer
 	notificationsv1.UnimplementedN10NServiceServer
-	requestedMessagesFor string
-	subscribedUser       string
+	requestedMessages bool
+	subscribed        bool
 }
 
 func (*signInTestSessionServer) GetUserByGHID(context.Context, *usersV1.GetUserByGHIDRequest) (*usersV1.GetUserByGHIDResponse, error) {
@@ -34,11 +34,11 @@ func (*signInTestSessionServer) GetSession(context.Context, *sessionsV1.GetSessi
 }
 
 func (*signInTestSessionServer) CreateSession(context.Context, *sessionsV1.CreateSessionRequest) (*sessionsV1.CreateSessionResponse, error) {
-	return &sessionsV1.CreateSessionResponse{SessionId: "test-session", UserId: "test-user"}, nil
+	return &sessionsV1.CreateSessionResponse{SessionId: "test-session", UserId: "test-user", InternalAccessToken: "access", InternalRefreshToken: "refresh"}, nil
 }
 
 func (s *signInTestSessionServer) GetMessagesByUser(_ context.Context, req *dmsv1.GetMessagesByUserRequest) (*dmsv1.GetMessagesByUserResponse, error) {
-	s.requestedMessagesFor = req.GetUserId()
+	s.requestedMessages = true
 	return &dmsv1.GetMessagesByUserResponse{Items: []*dmsv1.DirectMessageMetadata{{DmId: "friendship"}}}, nil
 }
 
@@ -49,7 +49,7 @@ func (*signInTestSessionServer) GetFriends(context.Context, *friendsv1.GetFriend
 }
 
 func (s *signInTestSessionServer) Subscribe(req *notificationsv1.SubscribeRequest, _ grpc.ServerStreamingServer[notificationsv1.SubscribeResponse]) error {
-	s.subscribedUser = req.GetUserId()
+	s.subscribed = true
 	return nil
 }
 
@@ -78,7 +78,7 @@ func TestSuccessfulSignInOpensHome(t *testing.T) {
 		signIn: newSignInModel(80, 24, "test-client", port),
 		home:   newHomeModel(80, 24),
 	}
-	updated, cmd := m.Update(signInSuccessMsg{token: tokenInfo{AccessToken: "test-token"}})
+	updated, cmd := m.Update(signInSuccessMsg{token: githubTokenInfo{AccessToken: "test-token"}})
 	if cmd == nil {
 		t.Fatal("expected home navigation command")
 	}
@@ -105,10 +105,10 @@ func TestSuccessfulSignInOpensHome(t *testing.T) {
 	if len(home.home.list.Items()) != 7 {
 		t.Fatal("expected exactly seven home options")
 	}
-	if service.requestedMessagesFor != "test-user" || home.home.messages.loading {
+	if !service.requestedMessages || home.home.messages.loading {
 		t.Fatal("messages were not fetched during sign-in")
 	}
-	if service.subscribedUser != "test-user" {
+	if !service.subscribed {
 		t.Fatal("notifications were not polled during sign-in")
 	}
 	messagesView := home.home.messages.View()

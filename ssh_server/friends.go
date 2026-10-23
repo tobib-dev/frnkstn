@@ -31,17 +31,17 @@ const (
 )
 
 type addFriendModel struct {
-	input            textinput.Model
-	userID, grpcPort string
-	adding           bool
-	errorText        string
+	input                         textinput.Model
+	userID, accessToken, grpcPort string
+	adding                        bool
+	errorText                     string
 }
 
-func newAddFriendModel(userID, grpcPort string) addFriendModel {
+func newAddFriendModel(userID, accessToken, grpcPort string) addFriendModel {
 	input := textinput.New()
 	input.Prompt = "Friend username: "
 	input.SetVirtualCursor(true)
-	return addFriendModel{input: input, userID: userID, grpcPort: grpcPort}
+	return addFriendModel{input: input, userID: userID, accessToken: accessToken, grpcPort: grpcPort}
 }
 
 func (m addFriendModel) Update(msg tea.Msg) (addFriendModel, tea.Cmd) {
@@ -65,7 +65,7 @@ func (m addFriendModel) Update(msg tea.Msg) (addFriendModel, tea.Cmd) {
 		m.adding, m.errorText = true, ""
 		m.input.Blur()
 		return m, func() tea.Msg {
-			if err := addFriend(m.userID, username, m.grpcPort); err != nil {
+			if err := addFriend(m.accessToken, username, m.grpcPort); err != nil {
 				return friendAddFailedMsg{err: err}
 			}
 			return friendAddedMsg{username: username}
@@ -93,7 +93,7 @@ func (m addFriendModel) View() string {
 	return view + "\n\nEnter to send request • Esc to cancel • Ctrl+C to quit"
 }
 
-func fetchPendingFriendRequests(userID, grpcPort string) tea.Cmd {
+func fetchPendingFriendRequests(accessToken, grpcPort string) tea.Cmd {
 	return func() tea.Msg {
 		conn, err := newGRPCClient("localhost:" + grpcPort)
 		if err != nil {
@@ -102,7 +102,8 @@ func fetchPendingFriendRequests(userID, grpcPort string) tea.Cmd {
 		defer conn.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
 		defer cancel()
-		response, err := friendsv1.NewFriendServiceClient(conn).GetFriends(ctx, &friendsv1.GetFriendsRequest{UserId: userID})
+		ctx = bearerContext(ctx, accessToken)
+		response, err := friendsv1.NewFriendServiceClient(conn).GetFriends(ctx, &friendsv1.GetFriendsRequest{})
 		if err != nil {
 			return pendingFriendRequestsFailedMsg{err: err}
 		}
@@ -110,7 +111,7 @@ func fetchPendingFriendRequests(userID, grpcPort string) tea.Cmd {
 	}
 }
 
-func addFriend(userID, username, grpcPort string) error {
+func addFriend(accessToken, username, grpcPort string) error {
 	conn, err := newGRPCClient("localhost:" + grpcPort)
 	if err != nil {
 		return err
@@ -118,6 +119,7 @@ func addFriend(userID, username, grpcPort string) error {
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
 	defer cancel()
+	ctx = bearerContext(ctx, accessToken)
 	user, err := usersv1.NewUserServiceClient(conn).GetUserByUsername(ctx, &usersv1.GetUserByUsernameRequest{Username: username})
 	if err != nil {
 		return fmt.Errorf("get friend: %w", err)
@@ -125,14 +127,14 @@ func addFriend(userID, username, grpcPort string) error {
 	if user.UserId == "" {
 		return fmt.Errorf("get friend returned no user ID")
 	}
-	_, err = friendsv1.NewFriendServiceClient(conn).AddFriend(ctx, &friendsv1.AddFriendRequest{UserId: userID, FriendId: user.UserId})
+	_, err = friendsv1.NewFriendServiceClient(conn).AddFriend(ctx, &friendsv1.AddFriendRequest{FriendId: user.UserId})
 	if err != nil {
 		return fmt.Errorf("add friend: %w", err)
 	}
 	return nil
 }
 
-func resolveFriendRequest(userID, grpcPort string, request *friendsv1.GetFriendsItem, action friendRequestAction) error {
+func resolveFriendRequest(userID, accessToken, grpcPort string, request *friendsv1.GetFriendsItem, action friendRequestAction) error {
 	conn, err := newGRPCClient("localhost:" + grpcPort)
 	if err != nil {
 		return err
@@ -140,6 +142,7 @@ func resolveFriendRequest(userID, grpcPort string, request *friendsv1.GetFriends
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
 	defer cancel()
+	ctx = bearerContext(ctx, accessToken)
 	client := friendsv1.NewFriendServiceClient(conn)
 	friendID := request.FriendId
 	if request.UserId != userID {
@@ -147,11 +150,11 @@ func resolveFriendRequest(userID, grpcPort string, request *friendsv1.GetFriends
 	}
 	switch action {
 	case cancelFriendRequest:
-		_, err = client.RemoveFriend(ctx, &friendsv1.RemoveFriendRequest{FriendshipId: request.FriendshipId, UserId: userID, FriendId: friendID})
+		_, err = client.RemoveFriend(ctx, &friendsv1.RemoveFriendRequest{FriendshipId: request.FriendshipId, FriendId: friendID})
 	case acceptFriendRequest:
-		_, err = client.AcceptFriend(ctx, &friendsv1.AcceptFriendRequest{FriendshipId: request.FriendshipId, UserId: userID, FriendId: friendID})
+		_, err = client.AcceptFriend(ctx, &friendsv1.AcceptFriendRequest{FriendshipId: request.FriendshipId, FriendId: friendID})
 	case declineFriendRequest:
-		_, err = client.RejectFriend(ctx, &friendsv1.RejectFriendRequest{FriendshipId: request.FriendshipId, UserId: userID, FriendId: friendID})
+		_, err = client.RejectFriend(ctx, &friendsv1.RejectFriendRequest{FriendshipId: request.FriendshipId, FriendId: friendID})
 	}
 	return err
 }
