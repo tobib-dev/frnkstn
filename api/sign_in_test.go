@@ -74,18 +74,18 @@ type testSessionStore struct {
 	creates int
 }
 
-type testRefreshTokenStore struct {
-	token db.RefreshToken
+type testInternalRefreshTokenStore struct {
+	token db.InternalRefreshToken
 }
 
-func (s *testRefreshTokenStore) GetRefreshTokenByGitHubID(context.Context, int64) (db.RefreshToken, error) {
+func (s *testInternalRefreshTokenStore) GetInternalRefreshTokenByGitHubID(context.Context, int64) (db.InternalRefreshToken, error) {
 	if s.token.Token == "" {
-		return db.RefreshToken{}, gocql.ErrNotFound
+		return db.InternalRefreshToken{}, gocql.ErrNotFound
 	}
 	return s.token, nil
 }
 
-func (s *testRefreshTokenStore) CreateRefreshToken(_ context.Context, token db.RefreshToken) error {
+func (s *testInternalRefreshTokenStore) CreateInternalRefreshToken(_ context.Context, token db.InternalRefreshToken) error {
 	s.token = token
 	return nil
 }
@@ -144,17 +144,17 @@ func TestCreateUserGeneratesLocalID(t *testing.T) {
 func TestCreateSessionDerivesUserFromGitHubToken(t *testing.T) {
 	id := gocql.TimeUUID()
 	store := &testSessionStore{}
-	tokens := &testRefreshTokenStore{}
+	tokens := &testInternalRefreshTokenStore{}
 	service := &SessionService{
 		cfg: &Config{logger: slog.Default(), signingKey: apiTestSigningKey}, store: store, tokens: tokens,
 		users:             &testUserStore{user: db.User{ID: id, GitHubID: 123}},
 		verifyGitHubToken: func(context.Context, string) (githubauth.User, error) { return githubauth.User{ID: 123}, nil },
 	}
-	resp, err := service.CreateSession(context.Background(), &sessionsV1.CreateSessionRequest{AccessToken: "token", AccessTokenExpiresAt: "3600", RefreshToken: "refresh", RefreshTokenExpiresAt: "7200"})
+	resp, err := service.CreateSession(context.Background(), &sessionsV1.CreateSessionRequest{GithubAccessToken: "token", GithubAccessTokenExpiresAt: "3600", GithubRefreshToken: "refresh", GithubRefreshTokenExpiresAt: "7200"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.UserId != id.String() || resp.AccessToken == "" || resp.RefreshToken == "" || store.params.UserID != id || store.params.RefreshToken != "refresh" || store.params.ExpiresIn.IsZero() {
+	if resp.UserId != id.String() || resp.InternalAccessToken == "" || resp.InternalRefreshToken == "" || store.params.UserID != id || store.params.GitHubRefreshToken != "refresh" || store.params.GitHubAccessTokenExpiresAt.IsZero() {
 		t.Fatal("session missing user or token data")
 	}
 }

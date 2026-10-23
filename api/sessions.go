@@ -23,7 +23,7 @@ const (
 type SessionService struct {
 	cfg               *Config
 	store             db.SessionStore
-	tokens            db.RefreshTokenStore
+	tokens            db.InternalRefreshTokenStore
 	users             db.UserStore
 	verifyGitHubToken func(context.Context, string) (githubauth.User, error)
 	sessionsV1.UnimplementedSessionServiceServer
@@ -40,10 +40,10 @@ func (serv *SessionService) CreateSession(ctx context.Context, sessionInfo *sess
 	sessionID := gocql.UUIDFromTime(time.Now())
 	serv.cfg.logger.Info("creating session")
 
-	if sessionInfo.AccessToken == "" {
-		return nil, status.Error(codes.InvalidArgument, "access token is required")
+	if sessionInfo.GithubAccessToken == "" {
+		return nil, status.Error(codes.InvalidArgument, "GitHub access token is required")
 	}
-	identity, err := serv.verifyGitHubToken(ctx, sessionInfo.AccessToken)
+	identity, err := serv.verifyGitHubToken(ctx, sessionInfo.GithubAccessToken)
 	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, "invalid GitHub access token")
 	}
@@ -56,30 +56,30 @@ func (serv *SessionService) CreateSession(ctx context.Context, sessionInfo *sess
 	}
 	userID := user.ID
 	now := time.Now()
-	expiresAt, err := tokenExpiry(now, sessionInfo.AccessTokenExpiresAt)
+	githubAccessTokenExpiresAt, err := tokenExpiry(now, sessionInfo.GithubAccessTokenExpiresAt)
 	if err != nil {
 		return nil, err
 	}
-	refreshExpiresAt, err := tokenExpiry(now, sessionInfo.RefreshTokenExpiresAt)
+	githubRefreshTokenExpiresAt, err := tokenExpiry(now, sessionInfo.GithubRefreshTokenExpiresAt)
 	if err != nil {
 		return nil, err
 	}
 	sess, err := serv.store.CreateSession(ctx, db.CreateSessionParams{
 		ID: sessionID, UserID: userID,
-		AccessToken: sessionInfo.AccessToken, ExpiresIn: expiresAt,
-		RefreshToken: sessionInfo.RefreshToken, RefreshTokenExpiresIn: refreshExpiresAt,
+		GitHubAccessToken: sessionInfo.GithubAccessToken, GitHubAccessTokenExpiresAt: githubAccessTokenExpiresAt,
+		GitHubRefreshToken: sessionInfo.GithubRefreshToken, GitHubRefreshTokenExpiresAt: githubRefreshTokenExpiresAt,
 	})
 	if err != nil {
 		serv.cfg.logger.Info("failed to create session", "error", err)
 		return nil, status.Error(codes.Internal, "could not create session")
 	}
 
-	refreshToken, err := serv.refreshToken(ctx, identity.ID, userID, now)
+	internalRefreshToken, err := serv.internalRefreshToken(ctx, identity.ID, userID, now)
 	if err != nil {
 		serv.cfg.logger.Error("failed to create internal refresh token", "error", err, "user_id", userID)
 		return nil, status.Error(codes.Internal, "could not create refresh token")
 	}
-	accessToken, err := auth.MakeJWT(userID.String(), auth.DefaultUserPermissions(), serv.cfg.signingKey, internalAccessTokenLifetime)
+	internalAccessToken, err := auth.MakeJWT(userID.String(), auth.DefaultUserPermissions(), serv.cfg.signingKey, internalAccessTokenLifetime)
 	if err != nil {
 		serv.cfg.logger.Error("failed to create internal access token", "error", err, "user_id", userID)
 		return nil, status.Error(codes.Internal, "could not create access token")
@@ -87,26 +87,26 @@ func (serv *SessionService) CreateSession(ctx context.Context, sessionInfo *sess
 
 	serv.cfg.logger.Info("session successfully created", "session_id", sess.ID.String())
 	return &sessionsV1.CreateSessionResponse{
-		SessionId: sess.ID.String(), UserId: sess.UserID.String(), AccessToken: accessToken,
-		RefreshToken: refreshToken.Token, ExpiresAt: now.Add(internalAccessTokenLifetime).Format(time.RFC3339Nano),
+		SessionId: sess.ID.String(), UserId: sess.UserID.String(), InternalAccessToken: internalAccessToken,
+		InternalRefreshToken: internalRefreshToken.Token, InternalAccessTokenExpiresAt: now.Add(internalAccessTokenLifetime).Format(time.RFC3339Nano),
 	}, nil
 }
 
-func (serv *SessionService) refreshToken(ctx context.Context, githubID int64, userID gocql.UUID, now time.Time) (db.RefreshToken, error) {
-	token, err := serv.tokens.GetRefreshTokenByGitHubID(ctx, githubID)
+func (serv *SessionService) internalRefreshToken(ctx context.Context, githubID int64, userID gocql.UUID, now time.Time) (db.InternalRefreshToken, error) {
+	token, err := serv.tokens.GetInternalRefreshTokenByGitHubID(ctx, githubID)
 	if err == nil && token.UserID == userID && token.RevokedAt.IsZero() && token.Expiration.After(now) {
 		return token, nil
 	}
 	if err != nil && !errors.Is(err, gocql.ErrNotFound) {
-		return db.RefreshToken{}, err
+		return db.InternalRefreshToken{}, err
 	}
 	value, err := auth.MakeRefreshToken()
 	if err != nil {
-		return db.RefreshToken{}, err
+		return db.InternalRefreshToken{}, err
 	}
-	token = db.RefreshToken{Token: value, UserID: userID, GitHubID: githubID, Expiration: now.Add(internalRefreshTokenLifetime)}
-	if err := serv.tokens.CreateRefreshToken(ctx, token); err != nil {
-		return db.RefreshToken{}, err
+	token = db.InternalRefreshToken{Token: value, UserID: userID, GitHubID: githubID, Expiration: now.Add(internalRefreshTokenLifetime)}
+	if err := serv.tokens.CreateInternalRefreshToken(ctx, token); err != nil {
+		return db.InternalRefreshToken{}, err
 	}
 	return token, nil
 }
@@ -132,11 +132,11 @@ func (serv *SessionService) GetSession(ctx context.Context, req *sessionsV1.GetS
 	}
 
 	resp := &sessionsV1.GetSessionResponse{
-		SessionId:    sess.ID.String(),
-		UserId:       sess.UserID.String(),
-		ExpiresAt:    sess.ExpiresIn.String(),
-		RefreshToken: sess.RefreshToken,
-		SignedOutAt:  sess.SignedOutAt.String(),
+		SessionId:                  sess.ID.String(),
+		UserId:                     sess.UserID.String(),
+		GithubAccessTokenExpiresAt: sess.GitHubAccessTokenExpiresAt.String(),
+		GithubRefreshToken:         sess.GitHubRefreshToken,
+		SignedOutAt:                sess.SignedOutAt.String(),
 	}
 	serv.cfg.logger.Info("successfully retrieved session", "session_id", req.SessionId)
 	return resp, nil
@@ -160,11 +160,11 @@ func (serv *SessionService) GetSessionByUser(ctx context.Context, req *sessionsV
 	}
 
 	resp := &sessionsV1.GetSessionByUserResponse{
-		SessionId:    sess.SessionID.String(),
-		UserId:       sess.UserID.String(),
-		ExpiresAt:    sess.ExpiresIn.String(),
-		RefreshToken: sess.RefreshToken,
-		SignedOutAt:  sess.SignedOutAt.String(),
+		SessionId:                   sess.SessionID.String(),
+		UserId:                      sess.UserID.String(),
+		GithubRefreshTokenExpiresAt: sess.GitHubRefreshTokenExpiresAt.String(),
+		GithubRefreshToken:          sess.GitHubRefreshToken,
+		SignedOutAt:                 sess.SignedOutAt.String(),
 	}
 	serv.cfg.logger.Info("successfully retrieved session by user", "session_id", sess.SessionID.String())
 	return resp, nil
@@ -186,11 +186,11 @@ func (serv *SessionService) UpdateSession(ctx context.Context, req *sessionsV1.U
 		return nil, status.Error(codes.Internal, "could not update session")
 	}
 	resp := &sessionsV1.UpdateSessionResponse{
-		SessionId:    sess.ID.String(),
-		UserId:       sess.UserID.String(),
-		ExpiresAt:    sess.ExpiresIn.String(),
-		RefreshToken: sess.RefreshToken,
-		SignedOutAt:  sess.SignedOutAt.Format(time.RFC3339Nano),
+		SessionId:                  sess.ID.String(),
+		UserId:                     sess.UserID.String(),
+		GithubAccessTokenExpiresAt: sess.GitHubAccessTokenExpiresAt.String(),
+		GithubRefreshToken:         sess.GitHubRefreshToken,
+		SignedOutAt:                sess.SignedOutAt.Format(time.RFC3339Nano),
 	}
 	serv.cfg.logger.Info("successfully updated session", "session_id", sess.ID.String())
 	return resp, nil

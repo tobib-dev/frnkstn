@@ -26,32 +26,32 @@ var sessionMetadata = table.Metadata{
 var sessionTable = table.New(sessionMetadata)
 
 type Session struct {
-	ID                    gocql.UUID
-	AccessToken           string
-	ExpiresIn             time.Time
-	RefreshToken          string
-	RefreshTokenExpiresIn time.Time
-	UserID                gocql.UUID
-	SignedOutAt           time.Time
+	ID                          gocql.UUID
+	GitHubAccessToken           string    `db:"access_token"`
+	GitHubAccessTokenExpiresAt  time.Time `db:"expires_in"`
+	GitHubRefreshToken          string    `db:"refresh_token"`
+	GitHubRefreshTokenExpiresAt time.Time `db:"refresh_token_expires_in"`
+	UserID                      gocql.UUID
+	SignedOutAt                 time.Time
 }
 
 type CreateSessionParams struct {
-	ID                    gocql.UUID
-	UserID                gocql.UUID
-	AccessToken           string
-	ExpiresIn             time.Time
-	RefreshToken          string
-	RefreshTokenExpiresIn time.Time
+	ID                          gocql.UUID
+	UserID                      gocql.UUID
+	GitHubAccessToken           string
+	GitHubAccessTokenExpiresAt  time.Time
+	GitHubRefreshToken          string
+	GitHubRefreshTokenExpiresAt time.Time
 }
 
 func (db *DB) CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error) {
 	sess := Session{
-		UserID:                arg.UserID,
-		ID:                    arg.ID,
-		AccessToken:           arg.AccessToken,
-		ExpiresIn:             arg.ExpiresIn,
-		RefreshToken:          arg.RefreshToken,
-		RefreshTokenExpiresIn: arg.RefreshTokenExpiresIn,
+		UserID:                      arg.UserID,
+		ID:                          arg.ID,
+		GitHubAccessToken:           arg.GitHubAccessToken,
+		GitHubAccessTokenExpiresAt:  arg.GitHubAccessTokenExpiresAt,
+		GitHubRefreshToken:          arg.GitHubRefreshToken,
+		GitHubRefreshTokenExpiresAt: arg.GitHubRefreshTokenExpiresAt,
 	}
 	batch := db.Session.ContextBatch(ctx, gocql.LoggedBatch)
 
@@ -60,10 +60,10 @@ func (db *DB) CreateSession(ctx context.Context, arg CreateSessionParams) (Sessi
 		Query(*db.Session)
 	if err := batch.BindMap(sessionInsert, qb.M{
 		"id":                       sess.ID,
-		"access_token":             sess.AccessToken,
-		"expires_in":               sess.ExpiresIn,
-		"refresh_token":            sess.RefreshToken,
-		"refresh_token_expires_in": sess.RefreshTokenExpiresIn,
+		"access_token":             sess.GitHubAccessToken,
+		"expires_in":               sess.GitHubAccessTokenExpiresAt,
+		"refresh_token":            sess.GitHubRefreshToken,
+		"refresh_token_expires_in": sess.GitHubRefreshTokenExpiresAt,
 		"user_id":                  sess.UserID,
 	}); err != nil {
 		return Session{}, fmt.Errorf("bind session insert: %w", err)
@@ -74,10 +74,10 @@ func (db *DB) CreateSession(ctx context.Context, arg CreateSessionParams) (Sessi
 			Columns("user_id", "session_id", "refresh_token", "expires_in").
 			Query(*db.Session)
 		if err := batch.BindMap(sessionByUserInsert, qb.M{
-			"refresh_token": sess.RefreshToken,
+			"refresh_token": sess.GitHubRefreshToken,
 			"session_id":    sess.ID,
 			"user_id":       sess.UserID,
-			"expires_in":    sess.RefreshTokenExpiresIn,
+			"expires_in":    sess.GitHubRefreshTokenExpiresAt,
 		}); err != nil {
 			return Session{}, fmt.Errorf("bind refresh-token session insert: %w", err)
 		}
@@ -99,11 +99,11 @@ var sessionByUserMetadata = table.Metadata{
 var sessionByUserTable = table.New(sessionByUserMetadata)
 
 type SessionByUser struct {
-	UserID       gocql.UUID
-	SessionID    gocql.UUID
-	RefreshToken string
-	ExpiresIn    time.Time
-	SignedOutAt  time.Time
+	UserID                      gocql.UUID
+	SessionID                   gocql.UUID
+	GitHubRefreshToken          string    `db:"refresh_token"`
+	GitHubRefreshTokenExpiresAt time.Time `db:"expires_in"`
+	SignedOutAt                 time.Time
 }
 
 type GetSessionParams struct {
