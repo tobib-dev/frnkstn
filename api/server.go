@@ -43,6 +43,9 @@ func main() {
 	godotenv.Load("../.env")
 	logFile := os.Getenv("LOGFILE")
 	jwtKey := os.Getenv("SIGNING_KEY")
+	if len(jwtKey) < 32 {
+		log.Fatal("SIGNING_KEY must be at least 32 bytes")
+	}
 	dbPort := os.Getenv("DB_PORT")
 	dbUser := os.Getenv("DB_USER")
 	dbPassword := os.Getenv("DB_PASSWORD")

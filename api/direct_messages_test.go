@@ -56,12 +56,12 @@ func TestMarkMessagesReadOnlyAllowsReceiver(t *testing.T) {
 	store := &testDMStore{messages: []db.DM{message}}
 	notifications := &testNotificationStore{}
 	service := &directMessageService{
-		cfg: &Config{logger: slog.Default()}, store: store,
+		cfg: &Config{logger: slog.Default(), signingKey: apiTestSigningKey}, store: store,
 		n10n: &notificationService{store: notifications},
 	}
 
-	_, err := service.MarkMessagesRead(context.Background(), &dmsV1.MarkMessagesReadRequest{
-		DmId: dmID.String(), UserId: receiverID.String(), MessageIds: []string{messageID.String(), messageID.String()},
+	_, err := service.MarkMessagesRead(authenticatedTestContext(receiverID), &dmsV1.MarkMessagesReadRequest{
+		DmId: dmID.String(), MessageIds: []string{messageID.String(), messageID.String()},
 	})
 	if err != nil || len(store.markedRead) != 1 || store.markedRead[0].MessageID != messageID {
 		t.Fatalf("message was not marked read once: messages=%+v error=%v", store.markedRead, err)
@@ -70,8 +70,8 @@ func TestMarkMessagesReadOnlyAllowsReceiver(t *testing.T) {
 		t.Fatalf("read message notification was not deleted: user=%s messages=%v", notifications.deletedUser, notifications.deletedMessages)
 	}
 	otherUser := gocql.TimeUUID()
-	_, err = service.MarkMessagesRead(context.Background(), &dmsV1.MarkMessagesReadRequest{
-		DmId: dmID.String(), UserId: otherUser.String(), MessageIds: []string{messageID.String()},
+	_, err = service.MarkMessagesRead(authenticatedTestContext(otherUser), &dmsV1.MarkMessagesReadRequest{
+		DmId: dmID.String(), MessageIds: []string{messageID.String()},
 	})
 	if status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("non-receiver marked message read: %v", err)
@@ -87,6 +87,17 @@ func (s *testDMStore) SubscribeMessages(context.Context, db.MessageStreamParams)
 	return nil, nil
 }
 
+func TestSendMessagesRejectsAuthorDifferentFromBearerToken(t *testing.T) {
+	userID, otherUserID := gocql.TimeUUID(), gocql.TimeUUID()
+	service := &directMessageService{cfg: &Config{logger: slog.Default(), signingKey: apiTestSigningKey}}
+	_, err := service.SendMessages(authenticatedTestContext(userID), &dmsV1.SendMessagesRequest{Item: &dmsV1.DirectMessageItem{
+		DmId: gocql.TimeUUID().String(), AuthorId: otherUserID.String(), ReceiverId: gocql.TimeUUID().String(), Content: "hello",
+	}})
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("spoofed author was not rejected: %v", err)
+	}
+}
+
 func TestSendMessagesGeneratesMessageID(t *testing.T) {
 	dmID, authorID, receiverID := gocql.TimeUUID(), gocql.TimeUUID(), gocql.TimeUUID()
 	store := &testDMStore{}
@@ -96,10 +107,10 @@ func TestSendMessagesGeneratesMessageID(t *testing.T) {
 		receiverID: {ID: receiverID},
 	}}
 	friends := &testFriendStore{friend: db.Friend{ID: dmID, UserID: authorID, FriendID: receiverID, Status: "accepted"}}
-	cfg := &Config{logger: slog.Default()}
+	cfg := &Config{logger: slog.Default(), signingKey: apiTestSigningKey}
 	service := &directMessageService{cfg: cfg, store: store, users: users, friends: friends, n10n: &notificationService{cfg: cfg, store: notifications}}
 
-	response, err := service.SendMessages(context.Background(), &dmsV1.SendMessagesRequest{Item: &dmsV1.DirectMessageItem{
+	response, err := service.SendMessages(authenticatedTestContext(authorID), &dmsV1.SendMessagesRequest{Item: &dmsV1.DirectMessageItem{
 		DmId: dmID.String(), AuthorId: authorID.String(), ReceiverId: receiverID.String(), Content: " hello ", MessageId: "ignored",
 	}})
 	if err != nil {
@@ -121,7 +132,7 @@ func TestSendMessagesGeneratesMessageID(t *testing.T) {
 	}
 
 	notifications.messageErr = errors.New("notification unavailable")
-	if _, err := service.SendMessages(context.Background(), &dmsV1.SendMessagesRequest{Item: &dmsV1.DirectMessageItem{
+	if _, err := service.SendMessages(authenticatedTestContext(authorID), &dmsV1.SendMessagesRequest{Item: &dmsV1.DirectMessageItem{
 		DmId: dmID.String(), AuthorId: authorID.String(), ReceiverId: receiverID.String(), Content: "still sent",
 	}}); err != nil {
 		t.Fatalf("notification failure changed successful message send: %v", err)
@@ -139,15 +150,15 @@ func TestSendMessagesDoesNotWaitForNotificationPublish(t *testing.T) {
 	broker := &testNotificationBroker{publishStarted: make(chan struct{}, 1), publishRelease: release, publishFinished: make(chan struct{}, 1)}
 	users := &testUserStore{users: map[gocql.UUID]db.User{authorID: {ID: authorID, Username: "alice"}}}
 	service := &directMessageService{
-		cfg:     &Config{logger: slog.Default()},
+		cfg:     &Config{logger: slog.Default(), signingKey: apiTestSigningKey},
 		store:   &testDMStore{},
 		users:   users,
 		friends: &testFriendStore{friend: db.Friend{ID: dmID, UserID: authorID, FriendID: receiverID, Status: "accepted"}},
-		n10n:    &notificationService{cfg: &Config{logger: slog.Default()}, store: &testNotificationStore{}, broker: broker},
+		n10n:    &notificationService{cfg: &Config{logger: slog.Default(), signingKey: apiTestSigningKey}, store: &testNotificationStore{}, broker: broker},
 	}
 	done := make(chan error, 1)
 	go func() {
-		_, err := service.SendMessages(context.Background(), &dmsV1.SendMessagesRequest{Item: &dmsV1.DirectMessageItem{
+		_, err := service.SendMessages(authenticatedTestContext(authorID), &dmsV1.SendMessagesRequest{Item: &dmsV1.DirectMessageItem{
 			DmId: dmID.String(), AuthorId: authorID.String(), ReceiverId: receiverID.String(), Content: "hello",
 		}})
 		done <- err
@@ -180,13 +191,13 @@ func TestSendMessagesRequiresExistingFriendship(t *testing.T) {
 	dmID, authorID, receiverID := gocql.TimeUUID(), gocql.TimeUUID(), gocql.TimeUUID()
 	store := &testDMStore{}
 	service := &directMessageService{
-		cfg:     &Config{logger: slog.Default()},
+		cfg:     &Config{logger: slog.Default(), signingKey: apiTestSigningKey},
 		store:   store,
 		users:   &testUserStore{},
 		friends: &testFriendStore{},
 	}
 
-	_, err := service.SendMessages(context.Background(), &dmsV1.SendMessagesRequest{Item: &dmsV1.DirectMessageItem{
+	_, err := service.SendMessages(authenticatedTestContext(authorID), &dmsV1.SendMessagesRequest{Item: &dmsV1.DirectMessageItem{
 		DmId: dmID.String(), AuthorId: authorID.String(), ReceiverId: receiverID.String(), Content: "hello",
 	}})
 	if status.Code(err) != codes.NotFound || store.sent != (db.DM{}) {
@@ -206,13 +217,13 @@ func TestGetMessagesAndMetadataReturnEveryItem(t *testing.T) {
 	}
 	store := &testDMStore{messages: messages, userMetadata: metadata}
 	users := &testUserStore{users: map[gocql.UUID]db.User{userID: {ID: userID}}}
-	service := &directMessageService{cfg: &Config{logger: slog.Default()}, store: store, users: users}
+	service := &directMessageService{cfg: &Config{logger: slog.Default(), signingKey: apiTestSigningKey}, store: store, users: users, friends: &testFriendStore{friend: db.Friend{ID: dmID, UserID: userID}}}
 
-	byDM, err := service.GetMessages(context.Background(), &dmsV1.GetMessagesRequest{Item: &dmsV1.DirectMessageItem{DmId: dmID.String()}})
+	byDM, err := service.GetMessages(authenticatedTestContext(userID), &dmsV1.GetMessagesRequest{Item: &dmsV1.DirectMessageItem{DmId: dmID.String()}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	byUser, err := service.GetMessagesByUser(context.Background(), &dmsV1.GetMessagesByUserRequest{UserId: userID.String()})
+	byUser, err := service.GetMessagesByUser(authenticatedTestContext(userID), &dmsV1.GetMessagesByUserRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}

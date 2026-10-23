@@ -25,6 +25,15 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
+const (
+	PermissionReadMessages  = "messages:read"
+	PermissionWriteMessages = "messages:write"
+)
+
+func DefaultUserPermissions() []string {
+	return []string{PermissionReadMessages, PermissionWriteMessages}
+}
+
 // MakeJWT creates a short-lived internal access token for a user and permissions.
 func MakeJWT(userID string, permissions []string, signingKey string, lifetime time.Duration) (string, error) {
 	if len(signingKey) < 32 {

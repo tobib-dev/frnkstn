@@ -10,6 +10,7 @@ import (
 	"github.com/gocql/gocql"
 	dmsV1 "github.com/tobib-dev/frnkstn-proto/dms/v1"
 	ntfnV1 "github.com/tobib-dev/frnkstn-proto/notifications/v1"
+	"github.com/tobib-dev/frnkstn/api/auth"
 	"github.com/tobib-dev/frnkstn/api/db"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -52,10 +53,17 @@ func (s *directMessageService) SendMessages(
 		logger.Warn("invalid DM ID", "error", err)
 		return nil, err
 	}
+	userID, err := authenticatedUserID(ctx, s.cfg, auth.PermissionWriteMessages)
+	if err != nil {
+		return nil, err
+	}
 	authorID, err := parseID(item.GetAuthorId(), "author ID")
 	if err != nil {
 		logger.Warn("invalid author ID", "error", err)
 		return nil, err
+	}
+	if authorID != userID {
+		return nil, status.Error(codes.PermissionDenied, "message author does not match bearer token")
 	}
 	receiverID, err := parseID(item.GetReceiverId(), "receiver ID")
 	if err != nil {
@@ -121,12 +129,12 @@ func (s *directMessageService) publishMessageNotification(message db.DM, logger 
 			return
 		}
 		s.n10n.publishMessageNotification(ctx, &ntfnV1.MsgN10NItem{
-			Id:         gocql.TimeUUID().String(),
-			MessageId:  message.MessageID.String(),
-			UserId:     message.ReceiverID.String(),
-			AuthorId:   message.AuthorID.String(),
-			AuthorName: author.Username,
-			Content:    message.Content,
+			Id:          gocql.TimeUUID().String(),
+			MessageId:   message.MessageID.String(),
+			RecipientId: message.ReceiverID.String(),
+			AuthorId:    message.AuthorID.String(),
+			AuthorName:  author.Username,
+			Content:     message.Content,
 		}, logger.With("message_id", message.MessageID.String()))
 	}()
 }
@@ -135,6 +143,10 @@ func (s *directMessageService) GetMessage(
 	ctx context.Context,
 	req *dmsV1.GetMessageRequest,
 ) (*dmsV1.GetMessageResponse, error) {
+	userID, err := authenticatedUserID(ctx, s.cfg, auth.PermissionReadMessages)
+	if err != nil {
+		return nil, err
+	}
 	logger := s.cfg.logger.With("location", "GetMessage")
 	item := req.GetItem()
 	if item == nil {
@@ -159,6 +171,9 @@ func (s *directMessageService) GetMessage(
 		logger.Error("failed to get message", "error", err)
 		return nil, status.Error(codes.Internal, "could not get message")
 	}
+	if message.AuthorID != userID && message.ReceiverID != userID {
+		return nil, status.Error(codes.PermissionDenied, "message does not belong to user")
+	}
 
 	logger.Info("message retrieved")
 	return &dmsV1.GetMessageResponse{Item: messageItem(message)}, nil
@@ -168,11 +183,11 @@ func (s *directMessageService) GetMessagesByUser(
 	ctx context.Context,
 	req *dmsV1.GetMessagesByUserRequest,
 ) (*dmsV1.GetMessagesByUserResponse, error) {
-	logger := s.cfg.logger.With("location", "GetMessagesByUser", "user_id", req.GetUserId())
-	userID, err := parseID(req.GetUserId(), "user ID")
+	userID, err := authenticatedUserID(ctx, s.cfg, auth.PermissionReadMessages)
 	if err != nil {
 		return nil, err
 	}
+	logger := s.cfg.logger.With("location", "GetMessagesByUser", "user_id", userID)
 	if _, err := s.users.GetUserByID(ctx, userID); err != nil {
 		logger.Error("failed to get user", "error", err)
 		return nil, userLookupError(err)
@@ -194,6 +209,10 @@ func (s *directMessageService) GetMessages(
 	ctx context.Context,
 	req *dmsV1.GetMessagesRequest,
 ) (*dmsV1.GetMessagesResponse, error) {
+	userID, err := authenticatedUserID(ctx, s.cfg, auth.PermissionReadMessages)
+	if err != nil {
+		return nil, err
+	}
 	item := req.GetItem()
 	if item == nil {
 		return nil, status.Error(codes.InvalidArgument, "DM is required")
@@ -203,6 +222,9 @@ func (s *directMessageService) GetMessages(
 		return nil, err
 	}
 	logger := s.cfg.logger.With("location", "GetMessages", "dm_id", dmID.String())
+	if err := s.authorizeConversation(ctx, userID, dmID); err != nil {
+		return nil, err
+	}
 
 	messages, err := s.store.GetMessages(ctx, dmID)
 	if err != nil {
@@ -218,11 +240,11 @@ func (s *directMessageService) MarkMessagesRead(
 	ctx context.Context,
 	req *dmsV1.MarkMessagesReadRequest,
 ) (*dmsV1.MarkMessagesReadResponse, error) {
-	dmID, err := parseID(req.GetDmId(), "friendship ID")
+	userID, err := authenticatedUserID(ctx, s.cfg, auth.PermissionReadMessages)
 	if err != nil {
 		return nil, err
 	}
-	userID, err := parseID(req.GetUserId(), "user ID")
+	dmID, err := parseID(req.GetDmId(), "friendship ID")
 	if err != nil {
 		return nil, err
 	}
@@ -279,6 +301,10 @@ func (s *directMessageService) SubscribeMessages(
 	stream grpc.ServerStreamingServer[dmsV1.DirectMessageItem],
 ) error {
 	ctx := stream.Context()
+	userID, err := authenticatedUserID(ctx, s.cfg, auth.PermissionReadMessages)
+	if err != nil {
+		return err
+	}
 
 	logger := s.cfg.logger
 	lastMsgTime := req.GetLastMsgTime()
@@ -295,6 +321,9 @@ func (s *directMessageService) SubscribeMessages(
 	if err != nil {
 		logger.Error("Invalid friendship ID", "location", "SubscribeMessages", "error", err)
 		return status.Errorf(codes.InvalidArgument, "invalid friendship ID: %v", err)
+	}
+	if err := s.authorizeConversation(ctx, userID, dmID); err != nil {
+		return err
 	}
 
 	cursor := gocql.MinTimeUUID(lastMsgTime.AsTime())
@@ -334,6 +363,20 @@ func (s *directMessageService) SubscribeMessages(
 		case <-ticker.C:
 		}
 	}
+}
+
+func (s *directMessageService) authorizeConversation(ctx context.Context, userID, dmID gocql.UUID) error {
+	friendship, err := s.friends.GetFriend(ctx, dmID)
+	if errors.Is(err, gocql.ErrNotFound) {
+		return status.Error(codes.NotFound, "friendship not found")
+	}
+	if err != nil {
+		return status.Error(codes.Internal, "could not get friendship")
+	}
+	if friendship.UserID != userID && friendship.FriendID != userID {
+		return status.Error(codes.PermissionDenied, "conversation does not belong to user")
+	}
+	return nil
 }
 
 func messageItem(msg db.DM) *dmsV1.DirectMessageItem {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/gocql/gocql"
 	ntfnV1 "github.com/tobib-dev/frnkstn-proto/notifications/v1"
+	"github.com/tobib-dev/frnkstn/api/auth"
 	"github.com/tobib-dev/frnkstn/api/db"
 	"github.com/tobib-dev/frnkstn/api/messaging"
 	"google.golang.org/grpc"
@@ -66,7 +67,7 @@ func (s *notificationService) AddMsgN10N(ctx context.Context, req *ntfnV1.AddMsg
 		logger.Warn("invalid message ID", "error", err)
 		return nil, err
 	}
-	userID, err := parseID(item.GetUserId(), "user ID")
+	userID, err := parseID(item.GetRecipientId(), "recipient ID")
 	if err != nil {
 		logger.Warn("invalid user ID", "error", err)
 		return nil, err
@@ -129,7 +130,7 @@ func (s *notificationService) GetMsgN10N(ctx context.Context, req *ntfnV1.GetMsg
 		logger.Warn("message notification is required")
 		return nil, status.Error(codes.InvalidArgument, "message notification is required")
 	}
-	userID, err := parseID(item.GetUserId(), "user ID")
+	userID, err := authenticatedUserID(ctx, s.cfg, auth.PermissionReadMessages)
 	if err != nil {
 		logger.Warn("invalid user ID", "error", err)
 		return nil, err
@@ -153,7 +154,11 @@ func (s *notificationService) UpdateMsgN10N(ctx context.Context, req *ntfnV1.Upd
 		logger.Warn("message notification is required")
 		return nil, status.Error(codes.InvalidArgument, "message notification is required")
 	}
-	userID, notificationID, err := notificationIDs(item.GetUserId(), item.GetId())
+	userID, err := authenticatedUserID(ctx, s.cfg, auth.PermissionReadMessages)
+	if err != nil {
+		return nil, err
+	}
+	_, notificationID, err := notificationIDs(userID.String(), item.GetId())
 	if err != nil {
 		logger.Warn("invalid message notification", "error", err)
 		return nil, err
@@ -178,7 +183,7 @@ func (s *notificationService) AddFriendN10N(ctx context.Context, req *ntfnV1.Add
 		logger.Warn("invalid friendship ID", "error", err)
 		return nil, err
 	}
-	userID, err := parseID(item.GetUserId(), "user ID")
+	userID, err := parseID(item.GetRecipientId(), "recipient ID")
 	if err != nil {
 		logger.Warn("invalid user ID", "error", err)
 		return nil, err
@@ -219,7 +224,7 @@ func (s *notificationService) GetFriendN10N(ctx context.Context, req *ntfnV1.Get
 		logger.Warn("friend notification is required")
 		return nil, status.Error(codes.InvalidArgument, "friend notification is required")
 	}
-	userID, err := parseID(item.GetUserId(), "user ID")
+	userID, err := authenticatedUserID(ctx, s.cfg, "")
 	if err != nil {
 		logger.Warn("invalid user ID", "error", err)
 		return nil, err
@@ -238,13 +243,13 @@ func (s *notificationService) GetFriendN10N(ctx context.Context, req *ntfnV1.Get
 
 func (s *notificationService) publishMessageNotification(ctx context.Context, item *ntfnV1.MsgN10NItem, logger *slog.Logger) {
 	item.Content = messageNotificationPreview(item.GetContent())
-	s.publishNotification(ctx, item.GetUserId(), &ntfnV1.SubscribeResponse{Item: &ntfnV1.SubscribeResponse_Message{Message: item}}, logger, func() {
+	s.publishNotification(ctx, item.GetRecipientId(), &ntfnV1.SubscribeResponse{Item: &ntfnV1.SubscribeResponse_Message{Message: item}}, logger, func() {
 		s.storeMessageNotification(ctx, item, logger)
 	})
 }
 
 func (s *notificationService) publishFriendNotification(ctx context.Context, item *ntfnV1.FriendN10NItem, logger *slog.Logger) {
-	s.publishNotification(ctx, item.GetUserId(), &ntfnV1.SubscribeResponse{Item: &ntfnV1.SubscribeResponse_Friend{Friend: item}}, logger, func() {
+	s.publishNotification(ctx, item.GetRecipientId(), &ntfnV1.SubscribeResponse{Item: &ntfnV1.SubscribeResponse_Friend{Friend: item}}, logger, func() {
 		s.storeFriendNotification(ctx, item, logger)
 	})
 }
@@ -349,7 +354,7 @@ func (s *notificationService) StartNotificationConsumer(ctx context.Context) err
 }
 
 func (s *notificationService) Subscribe(req *ntfnV1.SubscribeRequest, stream grpc.ServerStreamingServer[ntfnV1.SubscribeResponse]) error {
-	userID, err := parseID(req.GetUserId(), "user ID")
+	userID, err := authenticatedUserID(stream.Context(), s.cfg, "")
 	if err != nil {
 		return err
 	}
@@ -424,7 +429,11 @@ func (s *notificationService) UpdateFriendN10N(ctx context.Context, req *ntfnV1.
 		logger.Warn("friend notification is required")
 		return nil, status.Error(codes.InvalidArgument, "friend notification is required")
 	}
-	userID, notificationID, err := notificationIDs(item.GetUserId(), item.GetId())
+	userID, err := authenticatedUserID(ctx, s.cfg, "")
+	if err != nil {
+		return nil, err
+	}
+	_, notificationID, err := notificationIDs(userID.String(), item.GetId())
 	if err != nil {
 		logger.Warn("invalid friend notification", "error", err)
 		return nil, err
@@ -460,7 +469,7 @@ func messageNotificationItem(notification db.MessageNotification) *ntfnV1.MsgN10
 	return &ntfnV1.MsgN10NItem{
 		Id:          notification.NotificationID.String(),
 		MessageId:   notification.MessageID.String(),
-		UserId:      notification.UserID.String(),
+		RecipientId: notification.UserID.String(),
 		AuthorId:    notification.AuthorID.String(),
 		AuthorName:  notification.AuthorName,
 		Content:     notification.Content,
@@ -473,7 +482,7 @@ func friendNotificationItem(notification db.FriendNotification) *ntfnV1.FriendN1
 	return &ntfnV1.FriendN10NItem{
 		Id:           notification.NotificationID.String(),
 		FriendshipId: notification.FriendshipID.String(),
-		UserId:       notification.UserID.String(),
+		RecipientId:  notification.UserID.String(),
 		FriendId:     notification.FriendID.String(),
 		FriendName:   notification.FriendName,
 		Status:       notification.Status,

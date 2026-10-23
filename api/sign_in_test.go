@@ -10,6 +10,7 @@ import (
 	sessionsV1 "github.com/tobib-dev/frnkstn-proto/sessions/v1"
 	usersV1 "github.com/tobib-dev/frnkstn-proto/users/v1"
 	"github.com/tobib-dev/frnkstn/api/db"
+	githubauth "github.com/tobib-dev/frnkstn/internal/github"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -73,6 +74,22 @@ type testSessionStore struct {
 	creates int
 }
 
+type testRefreshTokenStore struct {
+	token db.RefreshToken
+}
+
+func (s *testRefreshTokenStore) GetRefreshTokenByGitHubID(context.Context, int64) (db.RefreshToken, error) {
+	if s.token.Token == "" {
+		return db.RefreshToken{}, gocql.ErrNotFound
+	}
+	return s.token, nil
+}
+
+func (s *testRefreshTokenStore) CreateRefreshToken(_ context.Context, token db.RefreshToken) error {
+	s.token = token
+	return nil
+}
+
 func (s *testSessionStore) CreateSession(_ context.Context, params db.CreateSessionParams) (db.Session, error) {
 	s.params = params
 	s.creates++
@@ -115,7 +132,7 @@ func TestGetUserByGitHubID(t *testing.T) {
 func TestCreateUserGeneratesLocalID(t *testing.T) {
 	store := &testUserStore{}
 	service := &UserService{cfg: &Config{logger: slog.Default()}, store: store}
-	resp, err := service.CreateUser(context.Background(), &usersV1.CreateUserRequest{GithubUserId: "123", Username: " alice ", Name: "Alice", UserId: "ignored"})
+	resp, err := service.CreateUser(context.Background(), &usersV1.CreateUserRequest{GithubUserId: "123", Username: " alice ", Name: "Alice"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,36 +141,29 @@ func TestCreateUserGeneratesLocalID(t *testing.T) {
 	}
 }
 
-func TestCreateSessionRequiresUserID(t *testing.T) {
+func TestCreateSessionDerivesUserFromGitHubToken(t *testing.T) {
 	id := gocql.TimeUUID()
-	for _, tt := range []struct {
-		name, requestedID string
-		code              codes.Code
-	}{
-		{"owner", id.String(), codes.OK}, {"missing user", "", codes.InvalidArgument},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			store := &testSessionStore{}
-			service := &SessionService{cfg: &Config{logger: slog.Default()}, store: store}
-			resp, err := service.CreateSession(context.Background(), &sessionsV1.CreateSessionRequest{UserId: tt.requestedID, AccessToken: "token", AccessTokenExpiresAt: "3600", RefreshToken: "refresh", RefreshTokenExpiresAt: "7200"})
-			if status.Code(err) != tt.code {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if tt.code != codes.OK && store.creates != 0 {
-				t.Fatal("session created without user ID")
-			}
-			if tt.code == codes.OK && (resp.UserId != id.String() || store.params.UserID != id || store.params.RefreshToken != "refresh" || store.params.ExpiresIn.IsZero()) {
-				t.Fatal("session missing user or token data")
-			}
-		})
+	store := &testSessionStore{}
+	tokens := &testRefreshTokenStore{}
+	service := &SessionService{
+		cfg: &Config{logger: slog.Default(), signingKey: apiTestSigningKey}, store: store, tokens: tokens,
+		users:             &testUserStore{user: db.User{ID: id, GitHubID: 123}},
+		verifyGitHubToken: func(context.Context, string) (githubauth.User, error) { return githubauth.User{ID: 123}, nil },
+	}
+	resp, err := service.CreateSession(context.Background(), &sessionsV1.CreateSessionRequest{AccessToken: "token", AccessTokenExpiresAt: "3600", RefreshToken: "refresh", RefreshTokenExpiresAt: "7200"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.UserId != id.String() || resp.AccessToken == "" || resp.RefreshToken == "" || store.params.UserID != id || store.params.RefreshToken != "refresh" || store.params.ExpiresIn.IsZero() {
+		t.Fatal("session missing user or token data")
 	}
 }
 
 func TestDeleteUserLoadsUserBeforeDeleting(t *testing.T) {
 	user := db.User{ID: gocql.TimeUUID(), GitHubID: 123, Name: "Alice", Username: "alice"}
 	store := &testUserStore{user: user}
-	service := &UserService{cfg: &Config{logger: slog.Default()}, store: store}
-	response, err := service.DeleteUser(context.Background(), &usersV1.DeleteUserRequest{UserId: user.ID.String()})
+	service := &UserService{cfg: &Config{logger: slog.Default(), signingKey: apiTestSigningKey}, store: store}
+	response, err := service.DeleteUser(authenticatedTestContext(user.ID), &usersV1.DeleteUserRequest{})
 	if err != nil || response.Status == "" || store.deletes != 1 {
 		t.Fatalf("delete failed: response=%v error=%v deletes=%d", response, err, store.deletes)
 	}

@@ -67,9 +67,9 @@ func (serv *UserService) UpdateUser(ctx context.Context, req *usersV1.UpdateUser
 	if username == "" || name == "" {
 		return nil, status.Error(codes.InvalidArgument, "username and name are required")
 	}
-	userID, err := gocql.ParseUUID(req.UserId)
+	userID, err := authenticatedUserID(ctx, serv.cfg, "")
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "user ID is required")
+		return nil, err
 	}
 	id, err := serv.store.GetUserIDByUsername(ctx, username)
 	if id != (gocql.UUID{}) && id != userID {
@@ -93,9 +93,9 @@ func (serv *UserService) UpdateUser(ctx context.Context, req *usersV1.UpdateUser
 }
 
 func (serv *UserService) GetUser(ctx context.Context, req *usersV1.GetUserRequest) (*usersV1.GetUserResponse, error) {
-	userID, err := gocql.ParseUUID(req.UserId)
+	userID, err := authenticatedUserID(ctx, serv.cfg, "")
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "user ID is required")
+		return nil, err
 	}
 	user, err := serv.store.GetUserByID(ctx, userID)
 	if err != nil {
@@ -112,6 +112,9 @@ func (serv *UserService) GetUser(ctx context.Context, req *usersV1.GetUserReques
 }
 
 func (serv *UserService) GetUserByUsername(ctx context.Context, req *usersV1.GetUserByUsernameRequest) (*usersV1.GetUserByUsernameResponse, error) {
+	if _, err := authenticatedUserID(ctx, serv.cfg, ""); err != nil {
+		return nil, err
+	}
 	username := strings.TrimSpace(req.Username)
 	userID, err := serv.store.GetUserIDByUsername(ctx, username)
 	if err != nil {
@@ -149,9 +152,9 @@ func (serv *UserService) GetUserByGHID(ctx context.Context, req *usersV1.GetUser
 }
 
 func (serv *UserService) DeleteUser(ctx context.Context, req *usersV1.DeleteUserRequest) (*usersV1.DeleteUserResponse, error) {
-	userUUID, err := gocql.ParseUUID(req.UserId)
+	userUUID, err := authenticatedUserID(ctx, serv.cfg, "")
 	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, "invalid user ID")
+		return nil, err
 	}
 	user, err := serv.store.GetUserByID(ctx, userUUID)
 	if errors.Is(err, gocql.ErrNotFound) {

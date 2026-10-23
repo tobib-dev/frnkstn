@@ -145,10 +145,10 @@ func (s *testNotificationStore) UpdateFriendNotification(_ context.Context, user
 func TestMessageNotificationLifecycle(t *testing.T) {
 	userID, messageID, authorID, notificationID := gocql.TimeUUID(), gocql.TimeUUID(), gocql.TimeUUID(), gocql.TimeUUID()
 	store := &testNotificationStore{}
-	service := &notificationService{cfg: &Config{logger: slog.Default()}, store: store}
+	service := &notificationService{cfg: &Config{logger: slog.Default(), signingKey: apiTestSigningKey}, store: store}
 
 	_, err := service.AddMsgN10N(context.Background(), &ntfnV1.AddMsgN10NRequest{Item: &ntfnV1.MsgN10NItem{
-		Id: notificationID.String(), UserId: userID.String(), MessageId: messageID.String(), AuthorId: authorID.String(), AuthorName: " Alice ", Content: " hello ", Seen: "true",
+		Id: notificationID.String(), RecipientId: userID.String(), MessageId: messageID.String(), AuthorId: authorID.String(), AuthorName: " Alice ", Content: " hello ", Seen: "true",
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -157,11 +157,11 @@ func TestMessageNotificationLifecycle(t *testing.T) {
 		t.Fatalf("unexpected added notification: %+v", store.message)
 	}
 
-	got, err := service.GetMsgN10N(context.Background(), &ntfnV1.GetMsgN10NRequest{Item: &ntfnV1.MsgN10NItem{UserId: userID.String()}})
+	got, err := service.GetMsgN10N(authenticatedTestContext(userID), &ntfnV1.GetMsgN10NRequest{Item: &ntfnV1.MsgN10NItem{}})
 	if err != nil || got.Item.Id != store.message.NotificationID.String() || got.Item.Seen != "false" {
 		t.Fatalf("unexpected get response: response=%+v error=%v", got, err)
 	}
-	if _, err := service.UpdateMsgN10N(context.Background(), &ntfnV1.UpdateMsgN10NRequest{Item: got.Item}); err != nil {
+	if _, err := service.UpdateMsgN10N(authenticatedTestContext(userID), &ntfnV1.UpdateMsgN10NRequest{Item: got.Item}); err != nil {
 		t.Fatal(err)
 	}
 	if store.updatedMessage != [2]gocql.UUID{userID, store.message.NotificationID} {
@@ -176,7 +176,7 @@ func TestAddMessageNotificationTruncatesLongContent(t *testing.T) {
 	content := strings.Repeat("🙂", messageNotificationPreviewLength+1)
 
 	_, err := service.AddMsgN10N(context.Background(), &ntfnV1.AddMsgN10NRequest{Item: &ntfnV1.MsgN10NItem{
-		UserId: userID.String(), MessageId: messageID.String(), AuthorId: authorID.String(), Content: content,
+		RecipientId: userID.String(), MessageId: messageID.String(), AuthorId: authorID.String(), Content: content,
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -189,10 +189,10 @@ func TestAddMessageNotificationTruncatesLongContent(t *testing.T) {
 func TestFriendNotificationLifecycle(t *testing.T) {
 	userID, friendshipID, friendID := gocql.TimeUUID(), gocql.TimeUUID(), gocql.TimeUUID()
 	store := &testNotificationStore{}
-	service := &notificationService{cfg: &Config{logger: slog.Default()}, store: store}
+	service := &notificationService{cfg: &Config{logger: slog.Default(), signingKey: apiTestSigningKey}, store: store}
 
 	_, err := service.AddFriendN10N(context.Background(), &ntfnV1.AddFriendN10NRequest{Item: &ntfnV1.FriendN10NItem{
-		UserId: userID.String(), FriendshipId: friendshipID.String(), FriendId: friendID.String(), FriendName: " Bob ", Status: "pending", Seen: "true",
+		RecipientId: userID.String(), FriendshipId: friendshipID.String(), FriendId: friendID.String(), FriendName: " Bob ", Status: "pending", Seen: "true",
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -201,11 +201,11 @@ func TestFriendNotificationLifecycle(t *testing.T) {
 		t.Fatalf("unexpected added notification: %+v", store.friend)
 	}
 
-	got, err := service.GetFriendN10N(context.Background(), &ntfnV1.GetFriendN10NRequest{Item: &ntfnV1.FriendN10NItem{UserId: userID.String()}})
+	got, err := service.GetFriendN10N(authenticatedTestContext(userID), &ntfnV1.GetFriendN10NRequest{Item: &ntfnV1.FriendN10NItem{}})
 	if err != nil || got.Item.Id != store.friend.NotificationID.String() || got.Item.Seen != "false" {
 		t.Fatalf("unexpected get response: response=%+v error=%v", got, err)
 	}
-	if _, err := service.UpdateFriendN10N(context.Background(), &ntfnV1.UpdateFriendN10NRequest{Item: got.Item}); err != nil {
+	if _, err := service.UpdateFriendN10N(authenticatedTestContext(userID), &ntfnV1.UpdateFriendN10NRequest{Item: got.Item}); err != nil {
 		t.Fatal(err)
 	}
 	if store.updatedFriend != [2]gocql.UUID{userID, store.friend.NotificationID} {
@@ -219,10 +219,10 @@ func TestSubscribeReturnsUnseenNotifications(t *testing.T) {
 		message: db.MessageNotification{NotificationID: gocql.TimeUUID(), UserID: userID, MessageID: gocql.TimeUUID(), AuthorID: gocql.TimeUUID()},
 		friend:  db.FriendNotification{NotificationID: gocql.TimeUUID(), UserID: userID, FriendshipID: gocql.TimeUUID(), FriendID: gocql.TimeUUID()},
 	}
-	stream := &testNotificationStream{ctx: context.Background()}
-	service := &notificationService{cfg: &Config{logger: slog.Default()}, store: store}
+	stream := &testNotificationStream{ctx: authenticatedTestContext(userID)}
+	service := &notificationService{cfg: &Config{logger: slog.Default(), signingKey: apiTestSigningKey}, store: store}
 
-	if err := service.Subscribe(&ntfnV1.SubscribeRequest{UserId: userID.String()}, stream); err != nil {
+	if err := service.Subscribe(&ntfnV1.SubscribeRequest{}, stream); err != nil {
 		t.Fatal(err)
 	}
 	if len(stream.items) != 2 || (stream.items[0].GetMessage() == nil && stream.items[1].GetMessage() == nil) || (stream.items[0].GetFriend() == nil && stream.items[1].GetFriend() == nil) {
@@ -239,7 +239,7 @@ func TestReadMessageNotificationIsRemovedWhenAdded(t *testing.T) {
 	}
 
 	_, err := service.AddMsgN10N(context.Background(), &ntfnV1.AddMsgN10NRequest{Item: &ntfnV1.MsgN10NItem{
-		Id: notificationID.String(), UserId: userID.String(), MessageId: messageID.String(), AuthorId: authorID.String(),
+		Id: notificationID.String(), RecipientId: userID.String(), MessageId: messageID.String(), AuthorId: authorID.String(),
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -256,10 +256,10 @@ func TestSubscribeLoadsNotificationTypesConcurrently(t *testing.T) {
 		messageGetStarted: make(chan struct{}, 1), messageGetRelease: messageRelease,
 		friendGetStarted: make(chan struct{}, 1), friendGetRelease: friendRelease,
 	}
-	service := &notificationService{cfg: &Config{logger: slog.Default()}, store: store}
+	service := &notificationService{cfg: &Config{logger: slog.Default(), signingKey: apiTestSigningKey}, store: store}
 	done := make(chan error, 1)
 	go func() {
-		done <- service.Subscribe(&ntfnV1.SubscribeRequest{UserId: userID.String()}, &testNotificationStream{ctx: context.Background()})
+		done <- service.Subscribe(&ntfnV1.SubscribeRequest{}, &testNotificationStream{ctx: authenticatedTestContext(userID)})
 	}()
 
 	for _, started := range []chan struct{}{store.messageGetStarted, store.friendGetStarted} {
@@ -283,19 +283,19 @@ func TestMessageNotificationUsesTopicAndDatabaseRead(t *testing.T) {
 	store := &testNotificationStore{}
 	broker := &testNotificationBroker{}
 	service := &notificationService{
-		cfg:    &Config{logger: slog.Default()},
+		cfg:    &Config{logger: slog.Default(), signingKey: apiTestSigningKey},
 		store:  store,
 		broker: broker,
 	}
 
 	item := &ntfnV1.MsgN10NItem{
-		Id: notificationID.String(), UserId: userID.String(), MessageId: messageID.String(), AuthorId: authorID.String(), AuthorName: "Alice", Content: "hello",
+		Id: notificationID.String(), RecipientId: userID.String(), MessageId: messageID.String(), AuthorId: authorID.String(), AuthorName: "Alice", Content: "hello",
 	}
 	service.publishMessageNotification(context.Background(), item, slog.Default())
 	if _, err := service.AddMsgN10N(context.Background(), &ntfnV1.AddMsgN10NRequest{Item: item}); err != nil {
 		t.Fatal(err)
 	}
-	message, err := service.GetMsgN10N(context.Background(), &ntfnV1.GetMsgN10NRequest{Item: &ntfnV1.MsgN10NItem{UserId: userID.String()}})
+	message, err := service.GetMsgN10N(authenticatedTestContext(userID), &ntfnV1.GetMsgN10NRequest{Item: &ntfnV1.MsgN10NItem{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,18 +309,18 @@ func TestGetMessageNotificationReadsDatabaseOnly(t *testing.T) {
 	store := &testNotificationStore{}
 	broker := &testNotificationBroker{}
 	service := &notificationService{
-		cfg:    &Config{logger: slog.Default()},
+		cfg:    &Config{logger: slog.Default(), signingKey: apiTestSigningKey},
 		store:  store,
 		broker: broker,
 	}
 
 	_, err := service.AddMsgN10N(context.Background(), &ntfnV1.AddMsgN10NRequest{Item: &ntfnV1.MsgN10NItem{
-		UserId: userID.String(), MessageId: messageID.String(), AuthorId: authorID.String(), Content: "hello",
+		RecipientId: userID.String(), MessageId: messageID.String(), AuthorId: authorID.String(), Content: "hello",
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := service.GetMsgN10N(context.Background(), &ntfnV1.GetMsgN10NRequest{Item: &ntfnV1.MsgN10NItem{UserId: userID.String()}})
+	response, err := service.GetMsgN10N(authenticatedTestContext(userID), &ntfnV1.GetMsgN10NRequest{Item: &ntfnV1.MsgN10NItem{}})
 	if err != nil || store.messageGets != 1 || response.GetItem().GetMessageId() != messageID.String() {
 		t.Fatalf("database fallback failed: response=%+v gets=%d error=%v", response, store.messageGets, err)
 	}
@@ -331,18 +331,18 @@ func TestSignedOutUserNotificationsUseDatabaseOnly(t *testing.T) {
 	store := &testNotificationStore{}
 	broker := &testNotificationBroker{}
 	service := &notificationService{
-		cfg:    &Config{logger: slog.Default()},
+		cfg:    &Config{logger: slog.Default(), signingKey: apiTestSigningKey},
 		store:  store,
 		broker: broker,
 	}
 
 	_, err := service.AddFriendN10N(context.Background(), &ntfnV1.AddFriendN10NRequest{Item: &ntfnV1.FriendN10NItem{
-		UserId: userID.String(), FriendshipId: friendshipID.String(), FriendId: friendID.String(), Status: "pending",
+		RecipientId: userID.String(), FriendshipId: friendshipID.String(), FriendId: friendID.String(), Status: "pending",
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	response, err := service.GetFriendN10N(context.Background(), &ntfnV1.GetFriendN10NRequest{Item: &ntfnV1.FriendN10NItem{UserId: userID.String()}})
+	response, err := service.GetFriendN10N(authenticatedTestContext(userID), &ntfnV1.GetFriendN10NRequest{Item: &ntfnV1.FriendN10NItem{}})
 	if err != nil || broker.publishes != 0 || store.friendGets != 1 || response.GetItem().GetFriendshipId() != friendshipID.String() {
 		t.Fatalf("signed-out user did not use database only: broker=%+v gets=%d response=%+v error=%v", broker, store.friendGets, response, err)
 	}
