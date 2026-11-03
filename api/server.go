@@ -12,6 +12,7 @@ import (
 	dmsV1 "github.com/tobib-dev/frnkstn-proto/dms/v1"
 	friendsV1 "github.com/tobib-dev/frnkstn-proto/friends/v1"
 	ntfnV1 "github.com/tobib-dev/frnkstn-proto/notifications/v1"
+	serverV1 "github.com/tobib-dev/frnkstn-proto/servers/v1"
 	sessionsV1 "github.com/tobib-dev/frnkstn-proto/sessions/v1"
 	usersV1 "github.com/tobib-dev/frnkstn-proto/users/v1"
 
@@ -109,12 +110,14 @@ func main() {
 		logger.Error("failed to subscribe to message notifications", "error", err)
 	}
 	directMessageService := NewDMService(&cfg)
+	serverService := NewServerService(&cfg)
 
 	usersV1.RegisterUserServiceServer(server, userService)
 	sessionsV1.RegisterSessionServiceServer(server, sessionService)
 	friendsV1.RegisterFriendServiceServer(server, friendshipService)
 	dmsV1.RegisterDMServiceServer(server, directMessageService)
 	ntfnV1.RegisterN10NServiceServer(server, notificationService)
+	serverV1.RegisterServerServiceServer(server, serverService)
 
 	logger.Info("frnkstn started", "port", cfg.server.port, "environment", "dev")
 	if err := server.Serve(lis); err != nil {

@@ -6,7 +6,8 @@ ssh_server/tui
 /api/serve.sh
 # logs
 *.log
-
+docker-compose.yaml
+prometheus.yml
 
 # Local development against sibling modules.
 go.work
