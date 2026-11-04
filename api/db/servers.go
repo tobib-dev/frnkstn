@@ -2,7 +2,6 @@ package db
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/gocql/gocql"
@@ -13,9 +12,9 @@ import (
 type ServerStore interface {
 	CreateServer(context.Context, Server) (Server, error)
 	GetServer(context.Context, gocql.UUID) (Server, error)
-	GetServerByUser(context.Context, gocql.UUID) ([]ServerByUser, error)
+	GetServersByUser(context.Context, gocql.UUID) ([]ServerByUser, error)
 	EditServer(context.Context, gocql.UUID, EditServerParams) (Server, error)
-	DeleteServer(context.Context, Server) error
+	DeleteServer(context.Context, gocql.UUID, *time.Time) error
 }
 
 type Server struct {
@@ -145,13 +144,13 @@ func (db *DB) GetServer(
 		return Server{}, err
 	}
 	if server.DeletionTimestamp != nil {
-		return Server{}, errors.New("server is deleted!!!")
+		return Server{}, gocql.ErrNotFound
 	}
 	return server, nil
 }
 
 // Check deletion timestamp
-func (db *DB) GetServerByUser(
+func (db *DB) GetServersByUser(
 	ctx context.Context,
 	userID gocql.UUID,
 ) ([]ServerByUser, error) {
@@ -225,16 +224,16 @@ func (db *DB) EditServer(
  */
 func (db *DB) DeleteServer(
 	ctx context.Context,
-	server Server,
+	serverID gocql.UUID,
+	deletionTime *time.Time,
 ) error {
-	now := time.Now()
 	err := db.Session.Query(
 		serverTable.Update("deletion_timestamp"),
 	).
 		WithContext(ctx).
 		BindMap(qb.M{
-			"server_id":          server.ServerID,
-			"deletion_timestamp": &now,
+			"server_id":          serverID,
+			"deletion_timestamp": deletionTime,
 		}).
 		ExecRelease()
 	if err != nil {
