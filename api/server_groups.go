@@ -14,17 +14,19 @@ import (
 )
 
 type serverService struct {
-	cfg   *Config
-	store db.ServerStore
-	users db.UserStore
+	cfg     *Config
+	store   db.ServerStore
+	users   db.UserStore
+	members db.ServerMemberStore
 	servV1.UnimplementedServerServiceServer
 }
 
 func NewServerService(cfg *Config) *serverService {
 	service := &serverService{
-		cfg:   cfg,
-		store: &cfg.db.session,
-		users: &cfg.db.session,
+		cfg:     cfg,
+		store:   &cfg.db.session,
+		users:   &cfg.db.session,
+		members: &cfg.db.session,
 	}
 	return service
 }

@@ -99,6 +99,11 @@ func (db *DB) CreateServer(
 	}
 
 	if (server.Owner != gocql.UUID{}) {
+		cursor := time.Now().UTC().Truncate(time.Millisecond)
+		query = qb.Insert(serverUserCursorMeta.Name).Columns(serverUserCursorMeta.Columns...).Query(*db.Session)
+		if err := batch.BindStruct(query, ServerUserCursor{UserID: server.Owner, ServerID: server.ServerID, Cursor: cursor}); err != nil {
+			return Server{}, err
+		}
 		query = qb.Insert(serverByUserMeta.Name).
 			Columns("user_id", "server_id", "server_name", "cursor").
 			Query(*db.Session)
@@ -106,7 +111,7 @@ func (db *DB) CreateServer(
 			"user_id":     server.Owner,
 			"server_id":   server.ServerID,
 			"server_name": server.ServerName,
-			"cursor":      time.Now(),
+			"cursor":      cursor,
 		}); err != nil {
 			return Server{}, err
 		}
