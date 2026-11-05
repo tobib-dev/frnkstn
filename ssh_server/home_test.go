@@ -97,7 +97,7 @@ func TestSuccessfulSignInOpensHome(t *testing.T) {
 		t.Fatal("successful sign-in did not open home with the token retained")
 	}
 	view := home.View().Content
-	for _, label := range []string{"Sign in successful", "Messages", "Groups", "Add friend", "Notifications", "Profile", "Sign out", "Exit"} {
+	for _, label := range []string{"Sign in successful", "Messages", "Servers", "Add friend", "Notifications", "Profile", "Sign out", "Exit"} {
 		if !strings.Contains(view, label) {
 			t.Errorf("home view is missing %q", label)
 		}

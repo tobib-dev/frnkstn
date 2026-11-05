@@ -16,7 +16,7 @@ type homeItemKind int
 
 const (
 	messagesHomeItem homeItemKind = iota
-	groupsHomeItem
+	serversHomeItem
 	addFriendHomeItem
 	notificationsHomeItem
 	profileHomeItem
@@ -33,8 +33,8 @@ func (i homeItem) FilterValue() string {
 	switch i.kind {
 	case messagesHomeItem:
 		return "Messages"
-	case groupsHomeItem:
-		return "Groups"
+	case serversHomeItem:
+		return "Servers"
 	case addFriendHomeItem:
 		return "Add friend"
 	case notificationsHomeItem:
@@ -65,6 +65,7 @@ const (
 	homeAddingFriend
 	homeViewingMessages
 	homeViewingNotifications
+	homeViewingServers
 )
 
 type homeModel struct {
@@ -77,6 +78,7 @@ type homeModel struct {
 	addFriend           addFriendModel
 	messages            messagesModel
 	notifications       notificationsModel
+	servers             serversModel
 	notificationItems   []notificationItem
 	notificationPolling bool
 	messageCounter      *atomic.Int64
@@ -93,7 +95,7 @@ func newHomeModel(width, height int) homeModel {
 	messageCounter, notificationCounter := &atomic.Int64{}, &atomic.Int64{}
 	l := list.New([]list.Item{
 		homeItem{kind: messagesHomeItem, counter: messageCounter},
-		homeItem{kind: groupsHomeItem},
+		homeItem{kind: serversHomeItem},
 		homeItem{kind: addFriendHomeItem},
 		homeItem{kind: notificationsHomeItem, counter: notificationCounter},
 		homeItem{kind: profileHomeItem},
@@ -166,6 +168,20 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 	}
 	if m.state == homeSigningOut {
 		return m, nil
+	}
+	if m.state == homeViewingServers {
+		if key, ok := msg.(tea.KeyPressMsg); ok {
+			if key.String() == "ctrl+c" {
+				return m.signOut(true)
+			}
+			if key.String() == "esc" && m.servers.page == serversList && !m.servers.busy {
+				m.state = homeReady
+				return m, nil
+			}
+		}
+		var cmd tea.Cmd
+		m.servers, cmd = m.servers.Update(msg)
+		return m, cmd
 	}
 	if updated, ok := msg.(profileUpdatedMsg); ok && m.state == homeEditingProfile {
 		log.Info("updating profile",
@@ -268,6 +284,10 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 	}
 	if key, ok := msg.(tea.KeyPressMsg); ok && key.String() == "enter" {
 		switch m.list.SelectedItem().(homeItem).kind {
+		case serversHomeItem:
+			m.state = homeViewingServers
+			m.servers = newServersModel(m.user.userID, m.session.internalAccessToken, m.grpcPort)
+			return m, m.servers.request(listServers, nil)
 		case messagesHomeItem:
 			m.state = homeViewingMessages
 			if m.messages.userID == "" {
@@ -380,6 +400,9 @@ func (m homeModel) View() tea.View {
 	}
 	if m.state == homeViewingNotifications {
 		return tea.NewView(lipgloss.NewStyle().Margin(2).Render(m.notifications.View()))
+	}
+	if m.state == homeViewingServers {
+		return tea.NewView(lipgloss.NewStyle().Margin(2).Render(m.servers.View()))
 	}
 	if m.state == homeSigningOut {
 		return tea.NewView(lipgloss.NewStyle().Margin(2).Render("Signing out…"))
