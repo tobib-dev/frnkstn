@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/gocql/gocql"
 	"github.com/scylladb/gocqlx/v3/qb"
@@ -56,12 +57,19 @@ var serverShareCodeTable = table.New(serverShareCodeMeta)
 func (db *DB) ShareServer(
 	ctx context.Context, shareCode ShareCode,
 ) error {
-	if shareCode.Code == "" || shareCode.Sender == (gocql.UUID{}) || shareCode.Receiver == (gocql.UUID{}) || shareCode.ServerID == (gocql.UUID{}) {
+	if shareCode.Code == "" ||
+		shareCode.Sender == (gocql.UUID{}) ||
+		shareCode.Receiver == (gocql.UUID{}) ||
+		shareCode.ServerID == (gocql.UUID{}) {
 		return errors.New("share code, sender, receiver and server are required")
 	}
 	shareCode.Used = false
-	applied, err := qb.Insert(serverShareCodeMeta.Name).Columns(serverShareCodeMeta.Columns...).Unique().
-		Query(*db.Session).WithContext(ctx).BindStruct(shareCode).ExecCASRelease()
+	applied, err := qb.Insert(serverShareCodeMeta.Name).
+		Columns(serverShareCodeMeta.Columns...).Unique().
+		Query(*db.Session).
+		WithContext(ctx).
+		BindStruct(shareCode).
+		ExecCASRelease()
 	if err != nil {
 		return err
 	}
@@ -75,8 +83,10 @@ func (db *DB) ShareServer(
 func (db *DB) JoinServer(
 	ctx context.Context, args JoinServerArgs,
 ) (Server, error) {
-	if args.UserID == (gocql.UUID{}) || args.Code == "" {
-		return Server{}, errors.New("user and share code are required")
+	if args.UserID == (gocql.UUID{}) ||
+		args.Code == "" {
+		return Server{},
+			errors.New("user and share code are required")
 	}
 	shareInfo := ShareCode{Code: args.Code}
 	err := db.Session.Query(
@@ -85,7 +95,8 @@ func (db *DB) JoinServer(
 		BindStruct(shareInfo).
 		GetRelease(&shareInfo)
 	if err != nil {
-		return Server{}, err
+		return Server{},
+			fmt.Errorf("error validating share code: %w", err)
 	}
 	if args.UserID != shareInfo.Receiver {
 		return Server{}, ErrInvitationRecipient
@@ -96,7 +107,8 @@ func (db *DB) JoinServer(
 
 	server, err := db.GetServer(ctx, shareInfo.ServerID)
 	if err != nil {
-		return Server{}, err
+		return Server{},
+			fmt.Errorf("error fetching server: %w", err)
 	}
 
 	if server.Owner == args.UserID {
@@ -108,28 +120,36 @@ func (db *DB) JoinServer(
 		ModName  string     `db:"mod_name"`
 		Role     string     `db:"role"`
 	}
-	err = db.Session.Query(serverModeratorsTable.Get()).WithContext(ctx).
-		BindMap(qb.M{"server_id": server.ServerID, "mod_id": args.UserID}).GetRelease(&moderator)
+	err = db.Session.Query(
+		serverModeratorsTable.Get(),
+	).
+		WithContext(ctx).
+		BindMap(
+			qb.M{
+				"server_id": server.ServerID,
+				"mod_id":    args.UserID,
+			},
+		).GetRelease(&moderator)
 	if err == nil {
 		return Server{}, ErrAlreadyServerMember
 	}
 	if !errors.Is(err, gocql.ErrNotFound) {
 		return Server{}, err
 	}
-	claim, err := db.claimServerInvitation(ctx, args.UserID, server.ServerID, args.Code)
+	claim, err := db.claimServerInvitation(
+		ctx, args.UserID, server.ServerID, args.Code)
 	if err != nil {
-		return Server{}, err
+		return Server{},
+			fmt.Errorf("error validating share code: %w", err)
 	}
 
 	batch := db.Session.ContextBatch(ctx, gocql.LoggedBatch)
 
-	query := qb.Update(serverShareCodeMeta.Name).
-		Set("used").
+	query := qb.Delete(serverShareCodeMeta.Name).
 		Where(qb.Eq("share_code")).
 		Query(*db.Session)
 	if err := batch.BindMap(query, qb.M{
 		"share_code": shareInfo.Code,
-		"used":       true,
 	}); err != nil {
 		return Server{}, err
 	}
@@ -173,7 +193,8 @@ func (db *DB) GetMembers(
 
 	if err := db.Session.Query(
 		serverMembersTable.Select(),
-	).WithContext(ctx).
+	).
+		WithContext(ctx).
 		BindMap(qb.M{"server_id": serverID}).
 		SelectRelease(&members); err != nil {
 		return nil, err
@@ -185,7 +206,8 @@ func (db *DB) LeaveServer(
 	ctx context.Context,
 	userID, serverID gocql.UUID,
 ) error {
-	if userID == (gocql.UUID{}) || serverID == (gocql.UUID{}) {
+	if userID == (gocql.UUID{}) ||
+		serverID == (gocql.UUID{}) {
 		return errors.New("user and server are required")
 	}
 	cursor, err := db.GetServerUserCursor(ctx, userID, serverID)
@@ -208,7 +230,11 @@ func (db *DB) LeaveServer(
 
 		query = qb.Delete(
 			serverByUserMeta.Name,
-		).Where(qb.Eq("user_id"), qb.Eq("cursor"), qb.Eq("server_id")).
+		).Where(
+			qb.Eq("user_id"),
+			qb.Eq("cursor"),
+			qb.Eq("server_id"),
+		).
 			Query(*db.Session)
 		if err := batch.BindMap(query, qb.M{
 			"user_id":   userID,
@@ -218,8 +244,17 @@ func (db *DB) LeaveServer(
 			return err
 		}
 	}
-	query := qb.Delete(serverUserCursorMeta.Name).Where(qb.Eq("user_id"), qb.Eq("server_id")).Query(*db.Session)
-	if err := batch.BindMap(query, qb.M{"user_id": userID, "server_id": serverID}); err != nil {
+	query := qb.Delete(
+		serverUserCursorMeta.Name,
+	).Where(
+		qb.Eq("user_id"),
+		qb.Eq("server_id"),
+	).Query(*db.Session)
+	if err := batch.BindMap(query,
+		qb.M{
+			"user_id": userID, "server_id": serverID,
+		},
+	); err != nil {
 		return err
 	}
 

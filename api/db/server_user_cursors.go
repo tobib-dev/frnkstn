@@ -31,16 +31,37 @@ var serverUserCursorMeta = table.Metadata{
 
 var serverUserCursorTable = table.New(serverUserCursorMeta)
 
-func (db *DB) GetServerUserCursor(ctx context.Context, userID, serverID gocql.UUID) (ServerUserCursor, error) {
-	row := ServerUserCursor{UserID: userID, ServerID: serverID}
-	err := db.Session.Query(serverUserCursorTable.Get()).WithContext(ctx).BindStruct(row).GetRelease(&row)
+func (db *DB) GetServerUserCursor(
+	ctx context.Context, userID, serverID gocql.UUID,
+) (ServerUserCursor, error) {
+	row := ServerUserCursor{
+		UserID: userID, ServerID: serverID,
+	}
+	err := db.Session.Query(
+		serverUserCursorTable.Get(),
+	).
+		WithContext(ctx).
+		BindStruct(row).
+		GetRelease(&row)
 	return row, err
 }
 
-func (db *DB) claimServerInvitation(ctx context.Context, userID, serverID gocql.UUID, code string) (ServerUserCursor, error) {
-	row := ServerUserCursor{UserID: userID, ServerID: serverID, Cursor: time.Now().UTC().Truncate(time.Millisecond), JoinCode: code}
-	applied, err := qb.Insert(serverUserCursorMeta.Name).Columns(serverUserCursorMeta.Columns...).Unique().
-		Query(*db.Session).WithContext(ctx).BindStruct(row).ExecCASRelease()
+func (db *DB) claimServerInvitation(
+	ctx context.Context, userID,
+	serverID gocql.UUID, code string,
+) (ServerUserCursor, error) {
+	row := ServerUserCursor{
+		UserID: userID, ServerID: serverID,
+		Cursor:   time.Now().UTC().Truncate(time.Millisecond),
+		JoinCode: code}
+	applied, err := qb.Insert(
+		serverUserCursorMeta.Name,
+	).
+		Columns(serverUserCursorMeta.Columns...).Unique().
+		Query(*db.Session).
+		WithContext(ctx).
+		BindStruct(row).
+		ExecCASRelease()
 	if err != nil {
 		return ServerUserCursor{}, err
 	}
@@ -48,7 +69,8 @@ func (db *DB) claimServerInvitation(ctx context.Context, userID, serverID gocql.
 		return row, nil
 	}
 	// Reuse the winning invite's cursor so a failed join batch can be retried without another index row.
-	existing, err := db.GetServerUserCursor(ctx, userID, serverID)
+	existing, err := db.GetServerUserCursor(
+		ctx, userID, serverID)
 	if err != nil {
 		return ServerUserCursor{}, err
 	}
@@ -58,7 +80,9 @@ func (db *DB) claimServerInvitation(ctx context.Context, userID, serverID gocql.
 	return existing, nil
 }
 
-func validateInvitationClaim(row ServerUserCursor, code string) error {
+func validateInvitationClaim(
+	row ServerUserCursor, code string,
+) error {
 	if code == "" || row.JoinCode != code {
 		return ErrAlreadyServerMember
 	}
