@@ -22,6 +22,53 @@ type testServerMemberStore struct {
 	leaveUser   gocql.UUID
 	leaveServer gocql.UUID
 	lists       int
+	invites     []db.ShareCode
+}
+
+func (s *testServerMemberStore) ShareServer(
+	_ context.Context, invite db.ShareCode,
+) error {
+	s.invites = append(s.invites, invite)
+	return nil
+}
+
+func TestInviteMemberPermissionsAndGeneratedCode(t *testing.T) {
+	owner, member, receiver := gocql.TimeUUID(), gocql.TimeUUID(), gocql.TimeUUID()
+	store := &testServerMemberStore{member: db.Member{
+		ServerID: gocql.TimeUUID(), MemberID: member,
+	}}
+	service := memberTestService(store, owner)
+	service.users = &testUserStore{users: map[gocql.UUID]db.User{
+		receiver: {ID: receiver}, member: {ID: member},
+	}}
+	req := &serversv1.InviteMemberRequest{
+		ServerId: store.member.ServerID.String(), MemberId: receiver.String(),
+	}
+	_, err := service.InviteMember(
+		authenticatedTestContext(gocql.TimeUUID()), req,
+	)
+	if status.Code(err) != codes.PermissionDenied || len(store.invites) != 0 {
+		t.Fatalf("outsider could invite: %v", err)
+	}
+	for _, sender := range []gocql.UUID{owner, member} {
+		response, err := service.InviteMember(authenticatedTestContext(sender), req)
+		if err != nil || response == nil {
+			t.Fatalf("invite failed: %v", err)
+		}
+		invite := store.invites[len(store.invites)-1]
+		if invite.Sender != sender || invite.Receiver != receiver ||
+			invite.ServerID != store.member.ServerID || len(invite.Code) < 26 {
+			t.Fatal("incorrect invitation identity or missing random code")
+		}
+	}
+	if store.invites[0].Code == store.invites[1].Code {
+		t.Fatal("invitations reused a code")
+	}
+	req.MemberId = member.String()
+	_, err = service.InviteMember(authenticatedTestContext(owner), req)
+	if status.Code(err) != codes.AlreadyExists || len(store.invites) != 2 {
+		t.Fatalf("existing member was invited: %v", err)
+	}
 }
 
 func (s *testServerMemberStore) GetMember(
@@ -71,6 +118,7 @@ func memberTestService(
 			ServerID: store.member.ServerID, Owner: owner,
 		}},
 		members: store,
+		cleanup: &testServerCleanupStore{called: make(chan gocql.UUID, 10)},
 	}
 }
 

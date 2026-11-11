@@ -24,7 +24,7 @@ type serverService struct {
 		PurgeServer(context.Context, gocql.UUID) error
 		CleanupRemovedMember(context.Context, gocql.UUID, gocql.UUID, time.Time) error
 	}
-	broker notificationBroker
+	broker durableBroker
 	servV1.UnimplementedServerServiceServer
 }
 
@@ -37,7 +37,7 @@ func NewServerService(cfg *Config) *serverService {
 		cleanup: &cfg.db.session,
 	}
 	if cfg.brokerURI != "" {
-		service.broker = serverCleanupBroker{uri: cfg.brokerURI}
+		service.broker = rabbitDurableBroker{uri: cfg.brokerURI}
 	}
 	return service
 }

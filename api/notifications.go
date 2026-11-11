@@ -21,13 +21,15 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-type notificationBroker interface {
+type transientBroker interface {
 	Publish(context.Context, string, string, []byte) (bool, error)
 }
 
-type rabbitNotificationBroker struct{ uri string }
+type rabbitTransientBroker struct{ uri string }
 
-func (b rabbitNotificationBroker) Publish(ctx context.Context, exchange, routingKey string, body []byte) (bool, error) {
+func (b rabbitTransientBroker) Publish(
+	ctx context.Context, exchange, routingKey string, body []byte,
+) (bool, error) {
 	return messaging.Publish(ctx, exchange, routingKey, b.uri, body)
 }
 
@@ -37,7 +39,7 @@ type notificationService struct {
 	messages interface {
 		GetMessageByID(context.Context, gocql.UUID) (db.DM, error)
 	}
-	broker notificationBroker
+	broker transientBroker
 	ntfnV1.UnimplementedN10NServiceServer
 }
 
@@ -50,7 +52,7 @@ const (
 func NewNotificationService(cfg *Config) *notificationService {
 	service := &notificationService{cfg: cfg, store: &cfg.db.session, messages: &cfg.db.session}
 	if cfg.brokerURI != "" {
-		service.broker = rabbitNotificationBroker{uri: cfg.brokerURI}
+		service.broker = rabbitTransientBroker{uri: cfg.brokerURI}
 	}
 	return service
 }

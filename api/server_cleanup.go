@@ -22,9 +22,13 @@ const (
 	cleanupMemberRemoved = "member_removed"
 )
 
-type serverCleanupBroker struct{ uri string }
+type durableBroker interface {
+	Publish(context.Context, string, string, []byte) (bool, error)
+}
 
-func (b serverCleanupBroker) Publish(
+type rabbitDurableBroker struct{ uri string }
+
+func (b rabbitDurableBroker) Publish(
 	ctx context.Context, exchange,
 	routingKey string, body []byte,
 ) (bool, error) {
