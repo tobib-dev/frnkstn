@@ -111,6 +111,11 @@ func main() {
 	}
 	directMessageService := NewDMService(&cfg)
 	serverService := NewServerService(&cfg)
+	cleanupCtx, cancelCleanup := context.WithCancel(context.Background())
+	defer cancelCleanup()
+	if err := serverService.StartServerConsumer(cleanupCtx); err != nil {
+		logger.Error("failed to start server cleanup consumer", "error", err)
+	}
 
 	usersV1.RegisterUserServiceServer(server, userService)
 	sessionsV1.RegisterSessionServiceServer(server, sessionService)

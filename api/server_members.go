@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/gocql/gocql"
 	serversv1 "github.com/tobib-dev/frnkstn-proto/servers/v1"
@@ -12,6 +14,75 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+func (s *serverService) InviteMember(
+	ctx context.Context, req *serversv1.InviteMemberRequest,
+) (response *serversv1.InviteMemberResponse, rpcErr error) {
+	logger := s.cfg.logger.With(
+		"operation", "InviteMember", "server_id", req.GetServerId(),
+		"member_id", req.GetMemberId(),
+	)
+	defer func() { logMemberRPCError(logger, rpcErr) }()
+	userID, err := authenticatedUserID(ctx, s.cfg, "")
+	if err != nil {
+		return nil, err
+	}
+	logger = logger.With("user_id", userID)
+	serverID, err := parseID(req.GetServerId(), "server ID")
+	if err != nil {
+		return nil, err
+	}
+	receiverID, err := parseID(req.GetMemberId(), "member ID")
+	if err != nil {
+		return nil, err
+	}
+	server, err := s.store.GetServer(ctx, serverID)
+	if err != nil {
+		return nil, s.memberError("get server", err)
+	}
+	if userID != server.Owner {
+		moderator, err := s.members.IsServerModerator(ctx, serverID, userID)
+		if err != nil {
+			return nil, s.memberError("check moderator", err)
+		}
+		if !moderator {
+			if _, err := s.members.GetMember(ctx, serverID, userID); err != nil {
+				if errors.Is(err, gocql.ErrNotFound) {
+					return nil, status.Error(
+						codes.PermissionDenied, "server membership required",
+					)
+				}
+				return nil, s.memberError("check membership", err)
+			}
+		}
+	}
+	if _, err := s.users.GetUserByID(ctx, receiverID); err != nil {
+		logger.Error("failed to get invitee", "error", err)
+		return nil, userLookupError(err)
+	}
+	moderator, err := s.members.IsServerModerator(ctx, serverID, receiverID)
+	if err != nil {
+		return nil, s.memberError("check invitee moderator", err)
+	}
+	if receiverID == server.Owner || moderator {
+		return nil, s.memberError("invite member", db.ErrAlreadyServerMember)
+	}
+	_, err = s.members.GetMember(ctx, serverID, receiverID)
+	if err == nil {
+		return nil, s.memberError("invite member", db.ErrAlreadyServerMember)
+	}
+	if !errors.Is(err, gocql.ErrNotFound) {
+		return nil, s.memberError("check invitee membership", err)
+	}
+	invite := db.ShareCode{
+		Code: rand.Text(), Sender: userID,
+		Receiver: receiverID, ServerID: serverID,
+	}
+	if err := s.members.ShareServer(ctx, invite); err != nil {
+		return nil, s.memberError("invite member", err)
+	}
+	return &serversv1.InviteMemberResponse{}, nil
+}
 
 func (s *serverService) JoinServer(
 	ctx context.Context, req *serversv1.JoinServerRequest,
@@ -141,9 +212,14 @@ func (s *serverService) LeaveServer(
 	if _, err := s.members.GetMember(ctx, serverID, userID); err != nil {
 		return nil, s.memberError("get member", err)
 	}
+	removedAt := time.Now().UTC()
 	if err := s.members.LeaveServer(ctx, userID, serverID); err != nil {
 		return nil, s.memberError("leave server", err)
 	}
+	s.queueServerCleanup(serverCleanupEvent{
+		Operation: cleanupMemberRemoved, ServerID: serverID.String(),
+		UserID: userID.String(), RemovedAt: removedAt,
+	})
 	return &serversv1.LeaveServerResponse{}, nil
 }
 
@@ -188,9 +264,14 @@ func (s *serverService) DeleteMember(
 	if err != nil {
 		return nil, s.memberError("get member", err)
 	}
+	removedAt := time.Now().UTC()
 	if err := s.members.LeaveServer(ctx, member.MemberID, serverID); err != nil {
 		return nil, s.memberError("remove member", err)
 	}
+	s.queueServerCleanup(serverCleanupEvent{
+		Operation: cleanupMemberRemoved, ServerID: serverID.String(),
+		UserID: member.MemberID.String(), RemovedAt: removedAt,
+	})
 	return &serversv1.DeleteMemberResponse{}, nil
 }
 
@@ -216,6 +297,8 @@ func (s *serverService) memberError(operation string, err error) error {
 		return status.Error(codes.PermissionDenied, "invitation belongs to another user")
 	case errors.Is(err, db.ErrInvitationUsed):
 		return status.Error(codes.FailedPrecondition, "invitation has been used")
+	case errors.Is(err, db.ErrShareCodeExists):
+		return status.Error(codes.AlreadyExists, "invitation code already exists")
 	default:
 		s.cfg.logger.Error("server member operation failed",
 			"operation", operation, "error", err)

@@ -18,6 +18,13 @@ type serverService struct {
 	store   db.ServerStore
 	users   db.UserStore
 	members db.ServerMemberStore
+	cleanup interface {
+		UpdateServerLookups(context.Context, gocql.UUID) error
+		MarkServerLookupsDeleted(context.Context, gocql.UUID) error
+		PurgeServer(context.Context, gocql.UUID) error
+		CleanupRemovedMember(context.Context, gocql.UUID, gocql.UUID, time.Time) error
+	}
+	broker notificationBroker
 	servV1.UnimplementedServerServiceServer
 }
 
@@ -27,6 +34,10 @@ func NewServerService(cfg *Config) *serverService {
 		store:   &cfg.db.session,
 		users:   &cfg.db.session,
 		members: &cfg.db.session,
+		cleanup: &cfg.db.session,
+	}
+	if cfg.brokerURI != "" {
+		service.broker = serverCleanupBroker{uri: cfg.brokerURI}
 	}
 	return service
 }
@@ -166,7 +177,7 @@ func (s *serverService) EditServer(
 
 	// handle cleaning up server by users and return server item
 	if server.ServerName != newServerInfo.ServerName {
-		s.handleServerByUserCleanup(ctx, serverID, "update server name")
+		s.handleServerByUserCleanup(ctx, serverID, cleanupServerEdit)
 	}
 	return &servV1.EditServerResponse{
 		Item: serverItem(newServerInfo),
@@ -205,7 +216,7 @@ func (s *serverService) DeleteServer(
 		logger.Error("failed to delete server", "server_id", serverID, "error", err)
 		return nil, status.Error(codes.Internal, "could not delete server")
 	}
-	s.handleServerByUserCleanup(ctx, serverID, "delete server")
+	s.handleServerByUserCleanup(ctx, serverID, cleanupServerDelete)
 	return &servV1.DeleteServerResponse{
 		Status: "successfully deleted",
 	}, nil
