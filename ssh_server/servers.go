@@ -52,22 +52,23 @@ type serverResultMsg struct {
 }
 
 type serversModel struct {
-	userID, accessToken, grpcPort string
-	page                          serversPage
-	items                         []*serversv1.UserServerItem
-	selected                      int
-	item                          *serversv1.ServerItem
-	name, bio                     textinput.Model
-	input                         textinput.Model
-	members                       []*serversv1.MemberItem
-	memberSelected                int
-	notice                        string
-	focusBio                      bool
-	busy                          bool
-	errorText                     string
+	userID, grpcPort string
+	accessToken      bearerToken
+	page             serversPage
+	items            []*serversv1.UserServerItem
+	selected         int
+	item             *serversv1.ServerItem
+	name, bio        textinput.Model
+	input            textinput.Model
+	members          []*serversv1.MemberItem
+	memberSelected   int
+	notice           string
+	focusBio         bool
+	busy             bool
+	errorText        string
 }
 
-func newServersModel(userID, accessToken, grpcPort string) serversModel {
+func newServersModel(userID string, accessToken bearerToken, grpcPort string) serversModel {
 	name, bio := textinput.New(), textinput.New()
 	input := textinput.New()
 	input.SetVirtualCursor(true)

@@ -10,8 +10,9 @@ import (
 )
 
 type sessionInfo struct {
-	sessionID, userID, internalAccessToken, internalRefreshToken string
-	signedOutAt                                                  time.Time
+	sessionID, userID, internalRefreshToken string
+	internalAccessToken                     bearerToken
+	signedOutAt                             time.Time
 }
 
 func createSession(token githubTokenInfo, userID, grpcPort string) (sessionInfo, error) {
@@ -43,17 +44,25 @@ func createSession(token githubTokenInfo, userID, grpcPort string) (sessionInfo,
 		resp.InternalRefreshToken == "" {
 		return sessionInfo{}, fmt.Errorf("invalid session response")
 	}
+	expiresAt, err := time.Parse(time.RFC3339Nano, resp.InternalAccessTokenExpiresAt)
+	if err != nil {
+		return sessionInfo{}, fmt.Errorf("invalid access token expiry: %w", err)
+	}
+	credentials := &tokenRenewal{
+		access: resp.InternalAccessToken, refresh: resp.InternalRefreshToken,
+		sessionID: resp.SessionId, expiresAt: expiresAt,
+	}
 	sessInfo := sessionInfo{
 		sessionID:            resp.SessionId,
 		userID:               resp.UserId,
-		internalAccessToken:  resp.InternalAccessToken,
+		internalAccessToken:  bearerToken{value: resp.InternalAccessToken, renewal: credentials},
 		internalRefreshToken: resp.InternalRefreshToken,
 	}
 
 	return sessInfo, nil
 }
 
-func getSession(sessionID, internalAccessToken, grpcPort string) (sessionInfo, error) {
+func getSession(sessionID string, internalAccessToken bearerToken, grpcPort string) (sessionInfo, error) {
 	grpcHost := "localhost:" + grpcPort
 	conn, err := newGRPCClient(grpcHost)
 	if err != nil {
@@ -86,8 +95,8 @@ func getSession(sessionID, internalAccessToken, grpcPort string) (sessionInfo, e
 	return sessInfo, nil
 }
 
-func updateSession(sessionID, internalAccessToken, grpcPort string) (sessionInfo, error) {
-	if sessionID == "" || internalAccessToken == "" {
+func updateSession(sessionID string, internalAccessToken bearerToken, grpcPort string) (sessionInfo, error) {
+	if sessionID == "" || internalAccessToken.value == "" {
 		return sessionInfo{}, fmt.Errorf("cannot sign out without session ID and access token")
 	}
 	grpcHost := "localhost:" + grpcPort

@@ -237,3 +237,12 @@ func TestDeleteUserLoadsUserBeforeDeleting(t *testing.T) {
 		t.Fatalf("delete failed: response=%v error=%v deletes=%d", response, err, store.deletes)
 	}
 }
+
+func (s *testInternalRefreshTokenStore) GetInternalRefreshToken(
+	_ context.Context, value string,
+) (db.InternalRefreshToken, error) {
+	if s.token.Token != value {
+		return db.InternalRefreshToken{}, gocql.ErrNotFound
+	}
+	return s.token, nil
+}

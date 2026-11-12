@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	usersV1 "github.com/tobib-dev/frnkstn-proto/users/v1"
@@ -61,6 +62,11 @@ func (s *usernameTestServer) CreateSession(
 		UserId:               "new-user",
 		InternalAccessToken:  "access",
 		InternalRefreshToken: "refresh",
+		InternalAccessTokenExpiresAt: time.Now().Add(
+			time.Hour,
+		).Format(
+			time.RFC3339Nano,
+		),
 	}, nil
 }
 

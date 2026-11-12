@@ -88,7 +88,7 @@ func getGitHubUser(accessToken string) (github.User, error) {
 	return github.GetUser(ctx, accessToken)
 }
 
-func updateUser(user userInfo, accessToken, grpcPort string) (userInfo, error) {
+func updateUser(user userInfo, accessToken bearerToken, grpcPort string) (userInfo, error) {
 	if user.userID == "" {
 		return userInfo{}, fmt.Errorf("cannot update profile without user ID")
 	}
@@ -118,8 +118,8 @@ func updateUser(user userInfo, accessToken, grpcPort string) (userInfo, error) {
 	return userInfo{userID: response.UserId, name: response.Name, username: response.Username}, nil
 }
 
-func deleteUser(accessToken, grpcPort string) error {
-	if accessToken == "" {
+func deleteUser(accessToken bearerToken, grpcPort string) error {
+	if accessToken.value == "" {
 		return fmt.Errorf("cannot delete account without access token")
 	}
 	conn, err := newGRPCClient("localhost:" + grpcPort)

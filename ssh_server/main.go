@@ -140,6 +140,21 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.signIn.list.SetSize(msg.Width, msg.Height)
 		m.home.list.SetSize(msg.Width, msg.Height)
 
+	case sessionCheckMsg:
+		if m.state != homeView || m.home.session.internalAccessToken.renewal != msg.renewal {
+			return m, nil
+		}
+		if !msg.renewal.mu.TryLock() {
+			return m, checkSession(msg.renewal)
+		}
+		expired := msg.renewal.closed
+		msg.renewal.mu.Unlock()
+		if !expired {
+			return m, checkSession(msg.renewal)
+		}
+		updated, _ := m.Update(signOutSuccessMsg{})
+		signedOut := updated.(mainModel)
+		return signedOut, signedOut.signIn.list.NewStatusMessage("Session expired. Please sign in again.")
 	case SwitchToHomeMsg:
 		m.state = homeView
 		m.home.session = m.signIn.session
@@ -159,6 +174,7 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			fetchMessagesByUser(m.home.session.internalAccessToken, m.home.grpcPort),
 			fetchMessageFriends(m.home.session.internalAccessToken, m.home.grpcPort),
 			pollNotifications(m.home.session.internalAccessToken, m.home.grpcPort),
+			checkSession(m.home.session.internalAccessToken.renewal),
 		)
 
 	case profileUpdatedMsg:
@@ -171,6 +187,8 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.signIn.session = sessionInfo{}
 
 	case signOutSuccessMsg:
+		m.home.session.internalAccessToken.renewal.stop()
+		m.home.messages.subscription.close()
 		welcome := m.signIn.banner
 		m.signIn = newSignInModel(m.width, m.height, m.signIn.clientID, m.signIn.grpcPort)
 		m.signIn.banner = welcome

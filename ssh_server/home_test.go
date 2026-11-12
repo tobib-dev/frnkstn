@@ -5,6 +5,7 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	dmsv1 "github.com/tobib-dev/frnkstn-proto/dms/v1"
@@ -48,6 +49,11 @@ func (*signInTestSessionServer) CreateSession(
 		UserId:               "test-user",
 		InternalAccessToken:  "access",
 		InternalRefreshToken: "refresh",
+		InternalAccessTokenExpiresAt: time.Now().Add(
+			time.Hour,
+		).Format(
+			time.RFC3339Nano,
+		),
 	}, nil
 }
 
@@ -109,7 +115,7 @@ func TestSuccessfulSignInOpensHome(t *testing.T) {
 	updated, cmd = updated.Update(cmd())
 	updated, cmd = updated.Update(cmd())
 	batch, ok := cmd().(tea.BatchMsg)
-	if !ok || len(batch) != 4 {
+	if !ok || len(batch) != 5 {
 		t.Fatal("sign-in did not schedule home data fetches")
 	}
 	updated, _ = updated.Update(batch[1]())

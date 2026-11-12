@@ -223,7 +223,7 @@ func TestOpeningConversationDisplaysHistoryAndIncomingMessage(t *testing.T) {
 	go server.Serve(listener)
 	_, port, _ := net.SplitHostPort(listener.Addr().String())
 
-	model := newMessagesModel(80, 24, "user", "", port)
+	model := newMessagesModel(80, 24, "user", bearerToken{}, port)
 	model, _ = model.Update(messageFriendsLoadedMsg{items: []*friendsv1.GetFriendsItem{{
 		UserId: "user", FriendshipId: "friendship", FriendId: "friend", FriendUsername: "bob", Status: "accepted",
 	}}})

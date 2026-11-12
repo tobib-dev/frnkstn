@@ -98,7 +98,7 @@ func TestServerMembershipFlow(t *testing.T) {
 	t.Cleanup(server.Stop)
 	go server.Serve(listener)
 	_, port, _ := net.SplitHostPort(listener.Addr().String())
-	m := newServersModel("mod", "token", port)
+	m := newServersModel("mod", bearerToken{value: "token"}, port)
 	m.busy = false
 	press := func(code rune) tea.Cmd {
 		t.Helper()
@@ -169,7 +169,7 @@ func TestServerMembershipFlow(t *testing.T) {
 }
 
 func TestMemberRequestFailureAllowsRetry(t *testing.T) {
-	m := newServersModel("member", "token", "port")
+	m := newServersModel("member", bearerToken{value: "token"}, "port")
 	m.page, m.busy = serverRemoveConfirmation, true
 	m, cmd := m.Update(serverResultMsg{
 		operation: removeMember, err: status.Error(codes.PermissionDenied, "denied"),

@@ -69,18 +69,19 @@ const (
 )
 
 type notificationsModel struct {
-	userID, accessToken, grpcPort string
-	items                         []notificationItem
-	cursor                        int
-	selected                      int
-	actionCursor                  int
-	loading                       bool
-	updating                      bool
-	invitesOnly                   bool
-	errorText                     string
+	userID, grpcPort string
+	accessToken      bearerToken
+	items            []notificationItem
+	cursor           int
+	selected         int
+	actionCursor     int
+	loading          bool
+	updating         bool
+	invitesOnly      bool
+	errorText        string
 }
 
-func newNotificationsModel(userID, accessToken, grpcPort string) notificationsModel {
+func newNotificationsModel(userID string, accessToken bearerToken, grpcPort string) notificationsModel {
 	return notificationsModel{
 		userID:      userID,
 		accessToken: accessToken,
@@ -263,7 +264,7 @@ func (m notificationsModel) View() string {
 
 const notificationPollInterval = 5 * time.Second
 
-func pollNotifications(accessToken, grpcPort string) tea.Cmd {
+func pollNotifications(accessToken bearerToken, grpcPort string) tea.Cmd {
 	return func() tea.Msg {
 		conn, err := newGRPCClient("localhost:" + grpcPort)
 		if err != nil {
@@ -318,7 +319,8 @@ func scheduleNotificationPoll() tea.Cmd {
 }
 
 func updateNotification(
-	accessToken, grpcPort string,
+	accessToken bearerToken,
+	grpcPort string,
 	index int,
 	item notificationItem,
 	enterConversation bool,

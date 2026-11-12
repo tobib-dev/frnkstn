@@ -79,7 +79,13 @@ func TestHomeSignOut(t *testing.T) {
 						24,
 					),
 				}
-				m.signIn.session = sessionInfo{sessionID: "session", userID: "user", internalAccessToken: "access"}
+				m.signIn.session = sessionInfo{
+					sessionID: "session",
+					userID:    "user",
+					internalAccessToken: bearerToken{
+						value: "access",
+					},
+				}
 				m.signIn.token = githubTokenInfo{AccessToken: "access", RefreshToken: "refresh"}
 				m.signIn.user = userInfo{userID: "user"}
 				updated, _ := m.Update(SwitchToHomeMsg{})

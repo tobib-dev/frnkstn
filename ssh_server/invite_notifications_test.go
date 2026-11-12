@@ -54,11 +54,11 @@ func TestInvitationNotificationFlow(t *testing.T) {
 	t.Cleanup(server.Stop)
 	go server.Serve(listener)
 	_, port, _ := net.SplitHostPort(listener.Addr().String())
-	polled, ok := pollNotifications("token", port)().(notificationsPolledMsg)
+	polled, ok := pollNotifications(bearerToken{value: "token"}, port)().(notificationsPolledMsg)
 	if !ok || len(polled.items) != 1 || polled.items[0].kind != inviteNotification {
 		t.Fatal("invite not polled")
 	}
-	m := newNotificationsModel("user", "token", port)
+	m := newNotificationsModel("user", bearerToken{value: "token"}, port)
 	m.loading = false
 	m.items = append([]notificationItem{{kind: messageNotification}}, polled.items...)
 	m, _ = m.Update(tea.KeyPressMsg{Code: 'i', Text: "i"})
@@ -74,7 +74,7 @@ func TestInvitationNotificationFlow(t *testing.T) {
 		t.Fatal("invitation did not open")
 	}
 	home := newHomeModel(80, 24)
-	home.user.userID, home.session.internalAccessToken, home.grpcPort = "user", "token", port
+	home.user.userID, home.session.internalAccessToken, home.grpcPort = "user", bearerToken{value: "token"}, port
 	home, cmd = home.Update(msg)
 	if cmd == nil || home.state != homeViewingServers || home.servers.input.Value() != "code" {
 		t.Fatal("invitation did not reach server preview")

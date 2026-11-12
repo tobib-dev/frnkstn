@@ -73,7 +73,13 @@ func TestProfileSave(t *testing.T) {
 			original := userInfo{userID: "user", name: "Alice", username: "alice"}
 			m := mainModel{home: newHomeModel(80, 24), signIn: newSignInModel(80, 24, "client", port)}
 			m.signIn.user = original
-			m.signIn.session = sessionInfo{sessionID: "session", userID: "user", internalAccessToken: "access"}
+			m.signIn.session = sessionInfo{
+				sessionID: "session",
+				userID:    "user",
+				internalAccessToken: bearerToken{
+					value: "access",
+				},
+			}
 			updated, _ := m.Update(SwitchToHomeMsg{})
 			m = updated.(mainModel)
 			m.home.list.Select(4)
@@ -190,7 +196,13 @@ func TestProfileDeleteAccount(t *testing.T) {
 				),
 			}
 			m.signIn.user = userInfo{userID: "user", name: "Alice", username: "alice"}
-			m.signIn.session = sessionInfo{sessionID: "session", userID: "user", internalAccessToken: "access"}
+			m.signIn.session = sessionInfo{
+				sessionID: "session",
+				userID:    "user",
+				internalAccessToken: bearerToken{
+					value: "access",
+				},
+			}
 			updated, _ := m.Update(SwitchToHomeMsg{})
 			m = updated.(mainModel)
 			m.home.list.Select(4)

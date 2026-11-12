@@ -8,7 +8,14 @@ import (
 )
 
 func TestBearerContext(t *testing.T) {
-	metadataValues, ok := metadata.FromOutgoingContext(bearerContext(context.Background(), "internal-token"))
+	metadataValues, ok := metadata.FromOutgoingContext(
+		bearerContext(
+			context.Background(),
+			bearerToken{
+				value: "internal-token",
+			},
+		),
+	)
 	if !ok ||
 		len(
 			metadataValues.Get(

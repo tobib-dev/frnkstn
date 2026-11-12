@@ -134,24 +134,30 @@ func (i messageFriendItem) receiverID() string {
 }
 
 type messagesModel struct {
-	list, friends                 list.Model
-	input                         textinput.Model
-	state                         messagesState
-	userID, accessToken, grpcPort string
-	loading                       bool
-	loadingFriends                bool
-	selectedFriend                *friendsv1.GetFriendsItem
-	selectedDM                    *dmsv1.DirectMessageMetadata
-	conversation                  []*dmsv1.DirectMessageItem
-	subscription                  *messageSubscription
-	metadata                      []*dmsv1.DirectMessageMetadata
-	friendNames                   map[string]string
-	friendsByDM                   map[string]*friendsv1.GetFriendsItem
-	sending                       bool
-	errorText                     string
+	list, friends    list.Model
+	input            textinput.Model
+	state            messagesState
+	userID, grpcPort string
+	accessToken      bearerToken
+	loading          bool
+	loadingFriends   bool
+	selectedFriend   *friendsv1.GetFriendsItem
+	selectedDM       *dmsv1.DirectMessageMetadata
+	conversation     []*dmsv1.DirectMessageItem
+	subscription     *messageSubscription
+	metadata         []*dmsv1.DirectMessageMetadata
+	friendNames      map[string]string
+	friendsByDM      map[string]*friendsv1.GetFriendsItem
+	sending          bool
+	errorText        string
 }
 
-func newMessagesModel(width, height int, userID, accessToken, grpcPort string) messagesModel {
+func newMessagesModel(
+	width, height int,
+	userID string,
+	accessToken bearerToken,
+	grpcPort string,
+) messagesModel {
 	delegate := list.NewDefaultDelegate()
 	messages := list.New([]list.Item{newMessageItem{}}, delegate, width, height)
 	messages.Title = "Messages"
@@ -549,7 +555,7 @@ func (m *messagesModel) setLastMessageTime(dmID string, cursor time.Time) {
 	}
 }
 
-func fetchMessagesByUser(accessToken, grpcPort string) tea.Cmd {
+func fetchMessagesByUser(accessToken bearerToken, grpcPort string) tea.Cmd {
 	return func() tea.Msg {
 		conn, err := newGRPCClient("localhost:" + grpcPort)
 		if err != nil {
@@ -567,7 +573,7 @@ func fetchMessagesByUser(accessToken, grpcPort string) tea.Cmd {
 	}
 }
 
-func fetchMessageFriends(accessToken, grpcPort string) tea.Cmd {
+func fetchMessageFriends(accessToken bearerToken, grpcPort string) tea.Cmd {
 	return func() tea.Msg {
 		conn, err := newGRPCClient("localhost:" + grpcPort)
 		if err != nil {
@@ -586,7 +592,9 @@ func fetchMessageFriends(accessToken, grpcPort string) tea.Cmd {
 }
 
 func sendDirectMessage(
-	userID, accessToken, grpcPort string,
+	userID string,
+	accessToken bearerToken,
+	grpcPort string,
 	friend *friendsv1.GetFriendsItem,
 	content string,
 	ongoing bool,
@@ -636,7 +644,7 @@ func sendDirectMessage(
 	}
 }
 
-func fetchConversation(dmID, accessToken, grpcPort string) tea.Cmd {
+func fetchConversation(dmID string, accessToken bearerToken, grpcPort string) tea.Cmd {
 	return func() tea.Msg {
 		cursor := time.Now()
 		conn, err := newGRPCClient("localhost:" + grpcPort)
@@ -663,7 +671,9 @@ func fetchConversation(dmID, accessToken, grpcPort string) tea.Cmd {
 }
 
 func markMessagesRead(
-	userID, accessToken, grpcPort, dmID string,
+	userID string,
+	accessToken bearerToken,
+	grpcPort, dmID string,
 	items []*dmsv1.DirectMessageItem,
 	next tea.Cmd,
 ) tea.Cmd {
@@ -703,7 +713,11 @@ func runNextMessage(next tea.Cmd) tea.Msg {
 	return next()
 }
 
-func startMessageStream(accessToken, grpcPort string, metadata *dmsv1.DirectMessageMetadata) tea.Cmd {
+func startMessageStream(
+	accessToken bearerToken,
+	grpcPort string,
+	metadata *dmsv1.DirectMessageMetadata,
+) tea.Cmd {
 	return func() tea.Msg {
 		if metadata == nil {
 			return messageStreamFailedMsg{err: fmt.Errorf("message metadata is required")}

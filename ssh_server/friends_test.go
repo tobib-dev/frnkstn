@@ -164,8 +164,8 @@ func TestProfileDisplaysUnrespondedRequests(t *testing.T) {
 	go server.Serve(listener)
 	_, port, _ := net.SplitHostPort(listener.Addr().String())
 
-	model := newProfileModel(userInfo{userID: "user"}, "", port)
-	msg := fetchPendingFriendRequests("user", port)()
+	model := newProfileModel(userInfo{userID: "user"}, bearerToken{}, port)
+	msg := fetchPendingFriendRequests(bearerToken{value: "user"}, port)()
 	model, _ = model.Update(msg)
 	view := model.View()
 	if model.loadingRequests ||
@@ -237,7 +237,7 @@ func TestSelectAndResolveUnrespondedRequest(t *testing.T) {
 			service.action = ""
 			m := newHomeModel(80, 24)
 			m.state = homeEditingProfile
-			m.profile = newProfileModel(userInfo{userID: "user"}, "", port)
+			m.profile = newProfileModel(userInfo{userID: "user"}, bearerToken{}, port)
 			m.profile, _ = m.profile.focusName()
 			m.profile.loadingRequests = false
 			friendID := "user"
@@ -279,7 +279,7 @@ func TestSelectAndResolveUnrespondedRequest(t *testing.T) {
 
 	m := newHomeModel(80, 24)
 	m.state = homeEditingProfile
-	m.profile = newProfileModel(userInfo{userID: "user"}, "", port)
+	m.profile = newProfileModel(userInfo{userID: "user"}, bearerToken{}, port)
 	m.profile.selectedRequest = &friendsv1.GetFriendsItem{UserId: "user"}
 	m.profile.actionCursor = 1
 	m, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})

@@ -31,13 +31,14 @@ const (
 )
 
 type addFriendModel struct {
-	input                         textinput.Model
-	userID, accessToken, grpcPort string
-	adding                        bool
-	errorText                     string
+	input            textinput.Model
+	userID, grpcPort string
+	accessToken      bearerToken
+	adding           bool
+	errorText        string
 }
 
-func newAddFriendModel(userID, accessToken, grpcPort string) addFriendModel {
+func newAddFriendModel(userID string, accessToken bearerToken, grpcPort string) addFriendModel {
 	input := textinput.New()
 	input.Prompt = "Friend username: "
 	input.SetVirtualCursor(true)
@@ -93,7 +94,7 @@ func (m addFriendModel) View() string {
 	return view + "\n\nEnter to send request • Esc to cancel • Ctrl+C to quit"
 }
 
-func fetchPendingFriendRequests(accessToken, grpcPort string) tea.Cmd {
+func fetchPendingFriendRequests(accessToken bearerToken, grpcPort string) tea.Cmd {
 	return func() tea.Msg {
 		conn, err := newGRPCClient("localhost:" + grpcPort)
 		if err != nil {
@@ -111,7 +112,7 @@ func fetchPendingFriendRequests(accessToken, grpcPort string) tea.Cmd {
 	}
 }
 
-func addFriend(accessToken, username, grpcPort string) error {
+func addFriend(accessToken bearerToken, username, grpcPort string) error {
 	conn, err := newGRPCClient("localhost:" + grpcPort)
 	if err != nil {
 		return err
@@ -149,7 +150,9 @@ func addFriend(accessToken, username, grpcPort string) error {
 }
 
 func resolveFriendRequest(
-	userID, accessToken, grpcPort string,
+	userID string,
+	accessToken bearerToken,
+	grpcPort string,
 	request *friendsv1.GetFriendsItem,
 	action friendRequestAction,
 ) error {

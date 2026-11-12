@@ -10,13 +10,16 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-func bearerContext(ctx context.Context, accessToken string) context.Context {
-	return metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+accessToken)
+func bearerContext(ctx context.Context, accessToken bearerToken) context.Context {
+	ctx = context.WithValue(ctx, bearerTokenKey{}, accessToken)
+	return metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+accessToken.value)
 }
 
 func newGRPCClient(target string) (*grpc.ClientConn, error) {
 	return grpc.NewClient(
 		target,
+		grpc.WithUnaryInterceptor(renewUnaryToken),
+		grpc.WithStreamInterceptor(renewStreamToken),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithStatsHandler(rpclog.Handler{
 			Message: "client request completed",

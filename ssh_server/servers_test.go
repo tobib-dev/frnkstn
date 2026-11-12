@@ -109,7 +109,9 @@ func TestHomeServerFlow(t *testing.T) {
 	go server.Serve(listener)
 	_, port, _ := net.SplitHostPort(listener.Addr().String())
 	m := newHomeModel(80, 24)
-	m.user.userID, m.session.internalAccessToken, m.grpcPort = "owner", "internal-token", port
+	m.user.userID, m.session.internalAccessToken, m.grpcPort = "owner", bearerToken{
+		value: "internal-token",
+	}, port
 	m.list.Select(1)
 	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
 	esc := tea.KeyPressMsg{Code: tea.KeyEscape}
@@ -160,7 +162,7 @@ func TestHomeServerFlow(t *testing.T) {
 }
 
 func TestServerActionsAndErrors(t *testing.T) {
-	m := newServersModel("member", "token", "port")
+	m := newServersModel("member", bearerToken{value: "token"}, "port")
 	m.busy, m.page = false, serverDetails
 	m.item = &serversv1.ServerItem{Owner: "owner", ServerName: "Server"}
 	for _, key := range []rune{'e', 'd'} {

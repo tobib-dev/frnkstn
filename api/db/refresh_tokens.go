@@ -11,6 +11,7 @@ import (
 )
 
 type InternalRefreshTokenStore interface {
+	GetInternalRefreshToken(context.Context, string) (InternalRefreshToken, error)
 	GetInternalRefreshTokenByGitHubID(context.Context, int64) (InternalRefreshToken, error)
 	CreateInternalRefreshToken(context.Context, InternalRefreshToken) error
 }
@@ -97,4 +98,11 @@ func (db *DB) CreateInternalRefreshToken(ctx context.Context, token InternalRefr
 		return fmt.Errorf("create refresh token: %w", err)
 	}
 	return nil
+}
+
+func (db *DB) GetInternalRefreshToken(ctx context.Context, value string) (InternalRefreshToken, error) {
+	var token InternalRefreshToken
+	err := db.Session.Query(table.New(internalRefreshTokenMetadata).Get()).WithContext(ctx).
+		BindMap(qb.M{"refresh_token": value}).GetRelease(&token)
+	return token, err
 }

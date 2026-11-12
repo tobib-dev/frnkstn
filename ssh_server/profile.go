@@ -16,19 +16,20 @@ type accountDeletedMsg struct{}
 type accountDeleteFailedMsg struct{ err error }
 
 type profileModel struct {
-	name, username                textinput.Model
-	userID, accessToken, grpcPort string
-	saving                        bool
-	confirmDelete                 bool
-	deleting                      bool
-	loadingRequests               bool
-	pendingRequests               []*friendsv1.GetFriendsItem
-	requestCursor                 int
-	selectedRequest               *friendsv1.GetFriendsItem
-	actionCursor                  int
-	acting                        bool
-	requestsError                 string
-	errorText                     string
+	name, username   textinput.Model
+	userID, grpcPort string
+	accessToken      bearerToken
+	saving           bool
+	confirmDelete    bool
+	deleting         bool
+	loadingRequests  bool
+	pendingRequests  []*friendsv1.GetFriendsItem
+	requestCursor    int
+	selectedRequest  *friendsv1.GetFriendsItem
+	actionCursor     int
+	acting           bool
+	requestsError    string
+	errorText        string
 }
 
 func (m profileModel) focusName() (profileModel, tea.Cmd) {
@@ -45,7 +46,7 @@ func (m profileModel) focusUsername() (profileModel, tea.Cmd) {
 	return m, cmd
 }
 
-func newProfileModel(user userInfo, accessToken, grpcPort string) profileModel {
+func newProfileModel(user userInfo, accessToken bearerToken, grpcPort string) profileModel {
 	name, username := textinput.New(), textinput.New()
 	name.Prompt, username.Prompt = "Name: ", "Username: "
 	name.SetVirtualCursor(true)

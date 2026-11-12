@@ -26,6 +26,7 @@ var sessionMetadata = table.Metadata{
 		"refresh_token",
 		"refresh_token_expires_in",
 		"user_id",
+		"signed_out_at",
 	},
 	PartKey: []string{"id"},
 }
