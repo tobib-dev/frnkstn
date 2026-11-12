@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	friendsv1 "github.com/tobib-dev/frnkstn-proto/friends/v1"
 	serversv1 "github.com/tobib-dev/frnkstn-proto/servers/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -15,6 +16,7 @@ import (
 
 type memberUITestService struct {
 	serversv1.UnimplementedServerServiceServer
+	friendsv1.UnimplementedFriendServiceServer
 	invited, removed, left string
 }
 
@@ -36,6 +38,14 @@ func (s *memberUITestService) JoinServer(
 		ShareCode: req.ShareCode,
 	})
 	return &serversv1.JoinServerResponse{Item: response.GetItem()}, err
+}
+
+func (*memberUITestService) GetFriends(
+	context.Context, *friendsv1.GetFriendsRequest,
+) (*friendsv1.GetFriendsResponse, error) {
+	return &friendsv1.GetFriendsResponse{Items: []*friendsv1.GetFriendsItem{{
+		UserId: "mod", FriendId: "invitee", FriendUsername: "Invitee", Status: "accepted",
+	}}}, nil
 }
 
 func (s *memberUITestService) InviteMember(
@@ -95,6 +105,7 @@ func TestServerMembershipFlow(t *testing.T) {
 		return handler(ctx, req)
 	}))
 	serversv1.RegisterServerServiceServer(server, service)
+	friendsv1.RegisterFriendServiceServer(server, service)
 	t.Cleanup(server.Stop)
 	go server.Serve(listener)
 	_, port, _ := net.SplitHostPort(listener.Addr().String())
@@ -135,8 +146,7 @@ func TestServerMembershipFlow(t *testing.T) {
 	if m.page != serverDetails || len(m.items) != 1 {
 		t.Fatal("join failed")
 	}
-	press('i')
-	m.input.SetValue(" invitee ")
+	run(press('i'))
 	run(press(tea.KeyEnter))
 	if service.invited != "invitee" || m.page != serverDetails {
 		t.Fatal("invite failed")

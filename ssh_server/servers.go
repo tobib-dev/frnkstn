@@ -6,6 +6,7 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	friendsv1 "github.com/tobib-dev/frnkstn-proto/friends/v1"
 	serversv1 "github.com/tobib-dev/frnkstn-proto/servers/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -41,6 +42,7 @@ const (
 	listMembers
 	leaveServer
 	removeMember
+	listFriends
 )
 
 type serverResultMsg struct {
@@ -48,6 +50,7 @@ type serverResultMsg struct {
 	items     []*serversv1.UserServerItem
 	item      *serversv1.ServerItem
 	members   []*serversv1.MemberItem
+	friends   []*friendsv1.GetFriendsItem
 	err       error
 }
 
@@ -62,6 +65,8 @@ type serversModel struct {
 	input            textinput.Model
 	members          []*serversv1.MemberItem
 	memberSelected   int
+	friends          []*friendsv1.GetFriendsItem
+	friendSelected   int
 	notice           string
 	focusBio         bool
 	busy             bool
@@ -123,6 +128,16 @@ func (m serversModel) request(operation serverOperation, item *serversv1.ServerI
 			}
 		case deleteServer:
 			_, result.err = client.DeleteServer(ctx, &serversv1.DeleteServerRequest{ServerId: item.GetServerId()})
+		case listFriends:
+			response, err := friendsv1.NewFriendServiceClient(conn).GetFriends(ctx, &friendsv1.GetFriendsRequest{})
+			result.err = err
+			if err == nil {
+				for _, friend := range response.GetItems() {
+					if friend.GetStatus() == "accepted" {
+						result.friends = append(result.friends, friend)
+					}
+				}
+			}
 		default:
 			m.memberRequest(ctx, client, &result)
 		}
@@ -176,6 +191,8 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 			m.item, m.page = result.item, serverJoinConfirmation
 		case inviteMember:
 			m.page, m.notice = serverDetails, "Invitation created."
+		case listFriends:
+			m.friends, m.friendSelected = result.friends, 0
 		case listMembers:
 			m.members, m.memberSelected, m.page = result.members, 0, serverMembers
 		case removeMember:
@@ -287,10 +304,8 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 		m.notice = ""
 		switch key.String() {
 		case "i":
-			m.page = serverInvite
-			m.input.Prompt = "Invited user ID: "
-			m.input.SetValue("")
-			return m, m.input.Focus()
+			m.page, m.busy, m.notice = serverInvite, true, ""
+			return m, m.request(listFriends, nil)
 		case "m":
 			m.busy = true
 			return m, m.request(listMembers, nil)

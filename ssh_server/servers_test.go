@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	friendsv1 "github.com/tobib-dev/frnkstn-proto/friends/v1"
 	serversv1 "github.com/tobib-dev/frnkstn-proto/servers/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -16,6 +17,8 @@ import (
 
 type tuiServerTestService struct {
 	serversv1.UnimplementedServerServiceServer
+	friendsv1.UnimplementedFriendServiceServer
+	inviteRequest *serversv1.InviteMemberRequest
 }
 
 func (*tuiServerTestService) GetUserServers(
@@ -83,6 +86,24 @@ func (*tuiServerTestService) DeleteServer(
 	return &serversv1.DeleteServerResponse{}, nil
 }
 
+func (*tuiServerTestService) GetFriends(
+	context.Context,
+	*friendsv1.GetFriendsRequest,
+) (*friendsv1.GetFriendsResponse, error) {
+	return &friendsv1.GetFriendsResponse{Items: []*friendsv1.GetFriendsItem{
+		{UserId: "owner", FriendId: "pending", FriendUsername: "Pending", Status: "pending"},
+		{UserId: "owner", FriendId: "friend-id", FriendUsername: "Alice", Status: "accepted"},
+	}}, nil
+}
+
+func (s *tuiServerTestService) InviteMember(
+	_ context.Context,
+	req *serversv1.InviteMemberRequest,
+) (*serversv1.InviteMemberResponse, error) {
+	s.inviteRequest = req
+	return &serversv1.InviteMemberResponse{}, nil
+}
+
 func TestHomeServerFlow(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -104,7 +125,9 @@ func TestHomeServerFlow(t *testing.T) {
 			},
 		),
 	)
-	serversv1.RegisterServerServiceServer(server, &tuiServerTestService{})
+	service := &tuiServerTestService{}
+	serversv1.RegisterServerServiceServer(server, service)
+	friendsv1.RegisterFriendServiceServer(server, service)
 	t.Cleanup(server.Stop)
 	go server.Serve(listener)
 	_, port, _ := net.SplitHostPort(listener.Addr().String())
@@ -158,6 +181,40 @@ func TestHomeServerFlow(t *testing.T) {
 	m, _ = m.Update(esc)
 	if m.state != homeReady {
 		t.Fatal("escape did not return home")
+	}
+}
+
+func TestServerInviteSelectsAcceptedFriend(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &tuiServerTestService{}
+	server := grpc.NewServer()
+	serversv1.RegisterServerServiceServer(server, service)
+	friendsv1.RegisterFriendServiceServer(server, service)
+	t.Cleanup(server.Stop)
+	go server.Serve(listener)
+	_, port, _ := net.SplitHostPort(listener.Addr().String())
+
+	m := newServersModel("owner", bearerToken{value: "token"}, port)
+	m.busy, m.page = false, serverDetails
+	m.item = &serversv1.ServerItem{ServerId: "server", ServerName: "Server"}
+	m, cmd := m.Update(tea.KeyPressMsg{Code: 'i', Text: "i"})
+	if m.page != serverInvite || cmd == nil {
+		t.Fatal("invite did not load friends")
+	}
+	m, _ = m.Update(cmd())
+	if len(m.friends) != 1 || m.friends[0].GetFriendUsername() != "Alice" {
+		t.Fatal("invite did not show accepted friends")
+	}
+	m, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("invite did not submit selected friend")
+	}
+	m, _ = m.Update(cmd())
+	if service.inviteRequest == nil || service.inviteRequest.GetMemberId() != "friend-id" {
+		t.Fatalf("invited member = %#v, want selected friend ID", service.inviteRequest)
 	}
 }
 

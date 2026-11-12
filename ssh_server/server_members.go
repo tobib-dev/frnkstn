@@ -13,8 +13,13 @@ func (m serversModel) memberRequest(
 ) {
 	switch result.operation {
 	case inviteMember:
+		friend := m.friends[m.friendSelected]
+		memberID := friend.GetFriendId()
+		if friend.GetUserId() != m.userID {
+			memberID = friend.GetUserId()
+		}
 		_, result.err = client.InviteMember(ctx, &serversv1.InviteMemberRequest{
-			ServerId: m.item.GetServerId(), MemberId: strings.TrimSpace(m.input.Value()),
+			ServerId: m.item.GetServerId(), MemberId: memberID,
 		})
 	case previewServer:
 		response, err := client.GetServerByCode(ctx, &serversv1.GetServerByCodeRequest{
@@ -45,18 +50,39 @@ func (m serversModel) memberRequest(
 func (m serversModel) updateMembers(msg tea.Msg) (serversModel, tea.Cmd, bool) {
 	key, isKey := msg.(tea.KeyPressMsg)
 	switch m.page {
-	case serverInvite, serverJoin:
+	case serverInvite:
+		if !isKey {
+			return m, nil, true
+		}
+		switch key.String() {
+		case "up", "k":
+			if m.friendSelected > 0 {
+				m.friendSelected--
+			}
+		case "down", "j":
+			if m.friendSelected < len(m.friends)-1 {
+				m.friendSelected++
+			}
+		case "r":
+			m.busy, m.errorText = true, ""
+			return m, m.request(listFriends, nil), true
+		case "enter":
+			if len(m.friends) == 0 {
+				m.errorText = "You have no accepted friends to invite."
+				return m, nil, true
+			}
+			m.busy, m.errorText = true, ""
+			return m, m.request(inviteMember, nil), true
+		}
+		return m, nil, true
+	case serverJoin:
 		if isKey && key.String() == "enter" {
 			if strings.TrimSpace(m.input.Value()) == "" {
 				m.errorText = "Please enter a value."
 				return m, nil, true
 			}
-			op := inviteMember
-			if m.page == serverJoin {
-				op = previewServer
-			}
 			m.busy, m.errorText = true, ""
-			return m, m.request(op, nil), true
+			return m, m.request(previewServer, nil), true
 		}
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
@@ -115,7 +141,22 @@ func (m serversModel) updateMembers(msg tea.Msg) (serversModel, tea.Cmd, bool) {
 func (m serversModel) membersView() string {
 	switch m.page {
 	case serverInvite:
-		return "Invite member\n\n" + m.input.View() + "\n\nEnter invite · Esc cancel"
+		var b strings.Builder
+		b.WriteString("Invite friend\n\n")
+		if len(m.friends) == 0 {
+			b.WriteString("No accepted friends available.")
+		} else {
+			for i, friend := range m.friends {
+				if i == m.friendSelected {
+					b.WriteString("> ")
+				} else {
+					b.WriteString("  ")
+				}
+				b.WriteString(friend.GetFriendUsername() + "\n")
+			}
+		}
+		b.WriteString("\n↑/↓ select · Enter invite · r refresh · Esc cancel")
+		return b.String()
 	case serverJoin:
 		return "Join server\n\n" + m.input.View() + "\n\nEnter preview · Esc cancel"
 	case serverJoinConfirmation:
