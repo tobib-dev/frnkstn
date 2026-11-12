@@ -25,7 +25,10 @@ type usernameTestServer struct {
 	name     string
 }
 
-func (s *usernameTestServer) CreateUser(_ context.Context, req *usersV1.CreateUserRequest) (*usersV1.CreateUserResponse, error) {
+func (s *usernameTestServer) CreateUser(
+	_ context.Context,
+	req *usersV1.CreateUserRequest,
+) (*usersV1.CreateUserResponse, error) {
 	s.calls = append(s.calls, "create user")
 	s.username = req.Username
 	s.name = req.Name
@@ -35,19 +38,30 @@ func (s *usernameTestServer) CreateUser(_ context.Context, req *usersV1.CreateUs
 	return &usersV1.CreateUserResponse{UserId: "new-user"}, nil
 }
 
-func (s *usernameTestServer) GetUserByGHID(_ context.Context, req *usersV1.GetUserByGHIDRequest) (*usersV1.GetUserByGHIDResponse, error) {
+func (s *usernameTestServer) GetUserByGHID(
+	_ context.Context,
+	req *usersV1.GetUserByGHIDRequest,
+) (*usersV1.GetUserByGHIDResponse, error) {
 	s.calls = append(s.calls, "get user")
 	if req.GithubUserId != "123" {
 		return nil, status.Error(codes.Unauthenticated, "missing token")
 	}
 	return nil, status.Error(codes.NotFound, "user not found")
 }
-func (s *usernameTestServer) CreateSession(_ context.Context, req *sessionsV1.CreateSessionRequest) (*sessionsV1.CreateSessionResponse, error) {
+func (s *usernameTestServer) CreateSession(
+	_ context.Context,
+	req *sessionsV1.CreateSessionRequest,
+) (*sessionsV1.CreateSessionResponse, error) {
 	s.calls = append(s.calls, "create session")
 	if req.GithubAccessToken != "test-token" {
 		return nil, status.Error(codes.InvalidArgument, "wrong token")
 	}
-	return &sessionsV1.CreateSessionResponse{SessionId: "session", UserId: "new-user", InternalAccessToken: "access", InternalRefreshToken: "refresh"}, nil
+	return &sessionsV1.CreateSessionResponse{
+		SessionId:            "session",
+		UserId:               "new-user",
+		InternalAccessToken:  "access",
+		InternalRefreshToken: "refresh",
+	}, nil
 }
 
 func TestNewUserCreatesAccountBeforeHome(t *testing.T) {
@@ -72,7 +86,12 @@ func TestNewUserCreatesAccountBeforeHome(t *testing.T) {
 	if !reflect.DeepEqual(users.calls, []string{"get user"}) {
 		t.Fatalf("session created before account: %v", users.calls)
 	}
-	if m.state != signInUsername || !m.username.nameInput.Focused() || !strings.Contains(m.View().Content, "enter username") {
+	if m.state != signInUsername ||
+		!m.username.nameInput.Focused() ||
+		!strings.Contains(
+			m.View().Content,
+			"enter username",
+		) {
 		t.Fatal("new user did not get a focused username prompt")
 	}
 	m.username.nameInput.SetValue("  Alice Example  ")
@@ -90,14 +109,25 @@ func TestNewUserCreatesAccountBeforeHome(t *testing.T) {
 		t.Fatal("submitted account twice")
 	}
 	m, cmd = m.Update(cmd())
-	if m.user.userID != "new-user" || users.username != "alice" || users.name != "Alice Example" || m.user.name != "Alice Example" {
+	if m.user.userID != "new-user" ||
+		users.username != "alice" ||
+		users.name != "Alice Example" ||
+		m.user.name != "Alice Example" {
 		t.Fatal("account creation did not retain user or submit trimmed username")
 	}
 	if cmd == nil {
 		t.Fatal("expected home navigation")
 	}
 	m, cmd = m.Update(cmd())
-	if m.session.userID != "new-user" || !reflect.DeepEqual(users.calls, []string{"get user", "create user", "create session"}) {
+	if m.session.userID != "new-user" ||
+		!reflect.DeepEqual(
+			users.calls,
+			[]string{
+				"get user",
+				"create user",
+				"create session",
+			},
+		) {
 		t.Fatalf("wrong session or call order: %v", users.calls)
 	}
 	if _, ok := cmd().(SwitchToHomeMsg); !ok {
@@ -117,7 +147,10 @@ func TestUsernameValidationAndRetry(t *testing.T) {
 	m.input.SetValue("alice")
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m, _ = m.Update(usernameFailedMsg{err: errors.New("private backend detail")})
-	if m.submitting || !m.input.Focused() || m.input.Value() != "alice" || m.nameInput.Value() != "Alice Example" {
+	if m.submitting ||
+		!m.input.Focused() ||
+		m.input.Value() != "alice" ||
+		m.nameInput.Value() != "Alice Example" {
 		t.Fatal("failed submission cannot be edited and retried")
 	}
 	if !strings.Contains(m.View(), "Please try again") || strings.Contains(m.View(), "private backend detail") {

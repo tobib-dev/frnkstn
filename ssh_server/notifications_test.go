@@ -23,14 +23,20 @@ type notificationTestServer struct {
 	subscriptions int
 }
 
-func (s *notificationTestServer) GetMsgN10N(context.Context, *notificationsv1.GetMsgN10NRequest) (*notificationsv1.GetMsgN10NResponse, error) {
+func (s *notificationTestServer) GetMsgN10N(
+	context.Context,
+	*notificationsv1.GetMsgN10NRequest,
+) (*notificationsv1.GetMsgN10NResponse, error) {
 	if len(s.messages) == 0 {
 		return nil, status.Error(codes.NotFound, "none")
 	}
 	return &notificationsv1.GetMsgN10NResponse{Item: s.messages[0]}, nil
 }
 
-func (s *notificationTestServer) GetFriendN10N(context.Context, *notificationsv1.GetFriendN10NRequest) (*notificationsv1.GetFriendN10NResponse, error) {
+func (s *notificationTestServer) GetFriendN10N(
+	context.Context,
+	*notificationsv1.GetFriendN10NRequest,
+) (*notificationsv1.GetFriendN10NResponse, error) {
 	if len(s.friends) == 0 {
 		return nil, status.Error(codes.NotFound, "none")
 	}
@@ -55,15 +61,30 @@ func (s *notificationTestServer) UpdateFriendN10N(
 	return &notificationsv1.UpdateFriendN10NResponse{}, nil
 }
 
-func (s *notificationTestServer) Subscribe(_ *notificationsv1.SubscribeRequest, stream grpc.ServerStreamingServer[notificationsv1.SubscribeResponse]) error {
+func (s *notificationTestServer) Subscribe(
+	_ *notificationsv1.SubscribeRequest,
+	stream grpc.ServerStreamingServer[notificationsv1.SubscribeResponse],
+) error {
 	s.subscriptions++
 	for _, message := range s.messages {
-		if err := stream.Send(&notificationsv1.SubscribeResponse{Item: &notificationsv1.SubscribeResponse_Message{Message: message}}); err != nil {
+		if err := stream.Send(
+			&notificationsv1.SubscribeResponse{
+				Item: &notificationsv1.SubscribeResponse_Message{
+					Message: message,
+				},
+			},
+		); err != nil {
 			return err
 		}
 	}
 	for _, friend := range s.friends {
-		if err := stream.Send(&notificationsv1.SubscribeResponse{Item: &notificationsv1.SubscribeResponse_Friend{Friend: friend}}); err != nil {
+		if err := stream.Send(
+			&notificationsv1.SubscribeResponse{
+				Item: &notificationsv1.SubscribeResponse_Friend{
+					Friend: friend,
+				},
+			},
+		); err != nil {
 			return err
 		}
 	}
@@ -97,7 +118,14 @@ func TestHomeNotificationsGetAndMarkSeen(t *testing.T) {
 		t.Fatal("notifications screen did not open")
 	}
 	m, _ = m.Update(cmd())
-	if view := m.View().Content; !strings.Contains(view, "Message from Alice: hello") || !strings.Contains(view, "Friend request from Bob") {
+	if view := m.View().Content; !strings.Contains(
+		view,
+		"Message from Alice: hello",
+	) ||
+		!strings.Contains(
+			view,
+			"Friend request from Bob",
+		) {
 		t.Fatalf("notifications were not displayed: %q", view)
 	}
 	m, cmd = m.Update(notificationsPollTickMsg{})
@@ -107,7 +135,18 @@ func TestHomeNotificationsGetAndMarkSeen(t *testing.T) {
 	}
 
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if view := m.View().Content; !strings.Contains(view, "Mark as seen") || !strings.Contains(view, "Ignore") || !strings.Contains(view, "Enter conversation") {
+	if view := m.View().Content; !strings.Contains(
+		view,
+		"Mark as seen",
+	) ||
+		!strings.Contains(
+			view,
+			"Ignore",
+		) ||
+		!strings.Contains(
+			view,
+			"Enter conversation",
+		) {
 		t.Fatalf("message notification actions were not displayed: %q", view)
 	}
 	m, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -115,7 +154,14 @@ func TestHomeNotificationsGetAndMarkSeen(t *testing.T) {
 		t.Fatal("message notification was not marked as seen")
 	}
 	m, _ = m.Update(cmd())
-	if len(service.updated) != 1 || service.updated[0] != "message-1" || !strings.Contains(m.View().Content, "again") {
+	if len(
+		service.updated,
+	) != 1 ||
+		service.updated[0] != "message-1" ||
+		!strings.Contains(
+			m.View().Content,
+			"again",
+		) {
 		t.Fatalf("message notification was not replaced: updates=%v view=%q", service.updated, m.View().Content)
 	}
 
@@ -126,7 +172,14 @@ func TestHomeNotificationsGetAndMarkSeen(t *testing.T) {
 	}
 	m, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m, _ = m.Update(cmd())
-	if len(service.updated) != 2 || service.updated[1] != "friend-1" || strings.Contains(m.View().Content, "Friend request from Bob") {
+	if len(
+		service.updated,
+	) != 2 ||
+		service.updated[1] != "friend-1" ||
+		strings.Contains(
+			m.View().Content,
+			"Friend request from Bob",
+		) {
 		t.Fatalf("friend notification was not marked seen: updates=%v view=%q", service.updated, m.View().Content)
 	}
 	if got := m.notificationCounter.Load(); got != 1 {
@@ -155,7 +208,15 @@ func TestMessageNotificationCanBeIgnoredOrOpenConversation(t *testing.T) {
 	m.messages, _ = m.messages.Update(messageFriendsLoadedMsg{items: []*friendsv1.GetFriendsItem{{
 		UserId: "user", FriendshipId: "friendship", FriendId: "friend", Status: "accepted",
 	}}})
-	m.messages, _ = m.messages.Update(messagesLoadedMsg{items: []*dmsv1.DirectMessageMetadata{{DmId: "friendship"}}})
+	m.messages, _ = m.messages.Update(
+		messagesLoadedMsg{
+			items: []*dmsv1.DirectMessageMetadata{
+				{
+					DmId: "friendship",
+				},
+			},
+		},
+	)
 	m.notificationPolling = true
 	m.notificationItems = []notificationItem{{kind: messageNotification, message: service.messages[0]}}
 	m.list.Select(3)
@@ -164,7 +225,14 @@ func TestMessageNotificationCanBeIgnoredOrOpenConversation(t *testing.T) {
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if cmd != nil || m.notifications.selected != -1 || len(m.notifications.items) != 1 || len(service.updated) != 0 {
+	if cmd != nil ||
+		m.notifications.selected != -1 ||
+		len(
+			m.notifications.items,
+		) != 1 ||
+		len(
+			service.updated,
+		) != 0 {
 		t.Fatal("ignoring a notification changed it")
 	}
 
@@ -180,7 +248,10 @@ func TestMessageNotificationCanBeIgnoredOrOpenConversation(t *testing.T) {
 		t.Fatal("enter conversation did not update the notification")
 	}
 	m, cmd = m.Update(cmd())
-	if cmd == nil || m.state != homeViewingMessages || m.messages.state != messagesViewingConversation || m.messages.selectedDM.GetDmId() != "friendship" {
+	if cmd == nil ||
+		m.state != homeViewingMessages ||
+		m.messages.state != messagesViewingConversation ||
+		m.messages.selectedDM.GetDmId() != "friendship" {
 		t.Fatal("message notification did not open its conversation")
 	}
 }

@@ -104,7 +104,14 @@ func newHomeModel(width, height int) homeModel {
 	}, delegate, width, height)
 	l.Title = "Home"
 	l.StatusMessageLifetime = 4 * time.Second
-	return homeModel{list: l, messageCounter: messageCounter, notificationCounter: notificationCounter, unreadAuthors: make(map[string]struct{})}
+	return homeModel{
+		list:                l,
+		messageCounter:      messageCounter,
+		notificationCounter: notificationCounter,
+		unreadAuthors: make(
+			map[string]struct{},
+		),
+	}
 }
 
 func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
@@ -121,7 +128,17 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		}
 		poll := scheduleNotificationPoll()
 		if hasNew {
-			return m, tea.Batch(poll, m.list.NewStatusMessage(fmt.Sprintf("You have %d new notification(s)", len(msg.items))))
+			return m, tea.Batch(
+				poll,
+				m.list.NewStatusMessage(
+					fmt.Sprintf(
+						"You have %d new notification(s)",
+						len(
+							msg.items,
+						),
+					),
+				),
+			)
 		}
 		return m, poll
 	case notificationsPollFailedMsg:
@@ -245,7 +262,9 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		var cmd tea.Cmd
 		previousState := m.messages.state
 		m.messages, cmd = m.messages.Update(msg)
-		if previousState != messagesViewingConversation && m.messages.state == messagesViewingConversation && m.messages.selectedDM != nil {
+		if previousState != messagesViewingConversation &&
+			m.messages.state == messagesViewingConversation &&
+			m.messages.selectedDM != nil {
 			m.markDMRead(m.messages.selectedDM.GetDmId())
 		}
 		return m, cmd
@@ -286,7 +305,15 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 	}
 	if msg, ok := msg.(tea.KeyPressMsg); ok {
 		if key.Matches(msg, m.list.KeyMap.ForceQuit) ||
-			(m.list.FilterState() != list.Filtering && !key.Matches(msg, m.list.KeyMap.ClearFilter) && key.Matches(msg, m.list.KeyMap.Quit)) {
+			(m.list.FilterState() != list.Filtering &&
+				!key.Matches(
+					msg,
+					m.list.KeyMap.ClearFilter,
+				) &&
+				key.Matches(
+					msg,
+					m.list.KeyMap.Quit,
+				)) {
 			return m.signOut(true)
 		}
 	}
@@ -299,7 +326,13 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		case messagesHomeItem:
 			m.state = homeViewingMessages
 			if m.messages.userID == "" {
-				m.messages = newMessagesModel(m.list.Width(), m.list.Height(), m.user.userID, m.session.internalAccessToken, m.grpcPort)
+				m.messages = newMessagesModel(
+					m.list.Width(),
+					m.list.Height(),
+					m.user.userID,
+					m.session.internalAccessToken,
+					m.grpcPort,
+				)
 				return m, fetchMessagesByUser(m.session.internalAccessToken, m.grpcPort)
 			}
 			return m, nil

@@ -36,7 +36,10 @@ func NewSessionService(cfg *Config) *SessionService {
 	}
 }
 
-func (serv *SessionService) CreateSession(ctx context.Context, sessionInfo *sessionsV1.CreateSessionRequest) (*sessionsV1.CreateSessionResponse, error) {
+func (serv *SessionService) CreateSession(
+	ctx context.Context,
+	sessionInfo *sessionsV1.CreateSessionRequest,
+) (*sessionsV1.CreateSessionResponse, error) {
 	sessionID := gocql.UUIDFromTime(time.Now())
 	serv.cfg.logger.Info("creating session")
 
@@ -65,9 +68,12 @@ func (serv *SessionService) CreateSession(ctx context.Context, sessionInfo *sess
 		return nil, err
 	}
 	sess, err := serv.store.CreateSession(ctx, db.CreateSessionParams{
-		ID: sessionID, UserID: userID,
-		GitHubAccessToken: sessionInfo.GithubAccessToken, GitHubAccessTokenExpiresAt: githubAccessTokenExpiresAt,
-		GitHubRefreshToken: sessionInfo.GithubRefreshToken, GitHubRefreshTokenExpiresAt: githubRefreshTokenExpiresAt,
+		ID:                          sessionID,
+		UserID:                      userID,
+		GitHubAccessToken:           sessionInfo.GithubAccessToken,
+		GitHubAccessTokenExpiresAt:  githubAccessTokenExpiresAt,
+		GitHubRefreshToken:          sessionInfo.GithubRefreshToken,
+		GitHubRefreshTokenExpiresAt: githubRefreshTokenExpiresAt,
 	})
 	if err != nil {
 		serv.cfg.logger.Info("failed to create session", "error", err)
@@ -79,7 +85,12 @@ func (serv *SessionService) CreateSession(ctx context.Context, sessionInfo *sess
 		serv.cfg.logger.Error("failed to create internal refresh token", "error", err, "user_id", userID)
 		return nil, status.Error(codes.Internal, "could not create refresh token")
 	}
-	internalAccessToken, err := auth.MakeJWT(userID.String(), auth.DefaultUserPermissions(), serv.cfg.signingKey, internalAccessTokenLifetime)
+	internalAccessToken, err := auth.MakeJWT(
+		userID.String(),
+		auth.DefaultUserPermissions(),
+		serv.cfg.signingKey,
+		internalAccessTokenLifetime,
+	)
 	if err != nil {
 		serv.cfg.logger.Error("failed to create internal access token", "error", err, "user_id", userID)
 		return nil, status.Error(codes.Internal, "could not create access token")
@@ -87,12 +98,24 @@ func (serv *SessionService) CreateSession(ctx context.Context, sessionInfo *sess
 
 	serv.cfg.logger.Info("session successfully created", "session_id", sess.ID.String())
 	return &sessionsV1.CreateSessionResponse{
-		SessionId: sess.ID.String(), UserId: sess.UserID.String(), InternalAccessToken: internalAccessToken,
-		InternalRefreshToken: internalRefreshToken.Token, InternalAccessTokenExpiresAt: now.Add(internalAccessTokenLifetime).Format(time.RFC3339Nano),
+		SessionId:            sess.ID.String(),
+		UserId:               sess.UserID.String(),
+		InternalAccessToken:  internalAccessToken,
+		InternalRefreshToken: internalRefreshToken.Token,
+		InternalAccessTokenExpiresAt: now.Add(
+			internalAccessTokenLifetime,
+		).Format(
+			time.RFC3339Nano,
+		),
 	}, nil
 }
 
-func (serv *SessionService) internalRefreshToken(ctx context.Context, githubID int64, userID gocql.UUID, now time.Time) (db.InternalRefreshToken, error) {
+func (serv *SessionService) internalRefreshToken(
+	ctx context.Context,
+	githubID int64,
+	userID gocql.UUID,
+	now time.Time,
+) (db.InternalRefreshToken, error) {
 	token, err := serv.tokens.GetInternalRefreshTokenByGitHubID(ctx, githubID)
 	if err == nil && token.UserID == userID && token.RevokedAt.IsZero() && token.Expiration.After(now) {
 		return token, nil
@@ -104,14 +127,24 @@ func (serv *SessionService) internalRefreshToken(ctx context.Context, githubID i
 	if err != nil {
 		return db.InternalRefreshToken{}, err
 	}
-	token = db.InternalRefreshToken{Token: value, UserID: userID, GitHubID: githubID, Expiration: now.Add(internalRefreshTokenLifetime)}
+	token = db.InternalRefreshToken{
+		Token:    value,
+		UserID:   userID,
+		GitHubID: githubID,
+		Expiration: now.Add(
+			internalRefreshTokenLifetime,
+		),
+	}
 	if err := serv.tokens.CreateInternalRefreshToken(ctx, token); err != nil {
 		return db.InternalRefreshToken{}, err
 	}
 	return token, nil
 }
 
-func (serv *SessionService) GetSession(ctx context.Context, req *sessionsV1.GetSessionRequest) (*sessionsV1.GetSessionResponse, error) {
+func (serv *SessionService) GetSession(
+	ctx context.Context,
+	req *sessionsV1.GetSessionRequest,
+) (*sessionsV1.GetSessionResponse, error) {
 	serv.cfg.logger.Info("get session", "session_id", req.SessionId)
 	userID, err := authenticatedUserID(ctx, serv.cfg, "")
 	if err != nil {
@@ -142,7 +175,10 @@ func (serv *SessionService) GetSession(ctx context.Context, req *sessionsV1.GetS
 	return resp, nil
 }
 
-func (serv *SessionService) GetSessionByUser(ctx context.Context, req *sessionsV1.GetSessionByUserRequest) (*sessionsV1.GetSessionByUserResponse, error) {
+func (serv *SessionService) GetSessionByUser(
+	ctx context.Context,
+	req *sessionsV1.GetSessionByUserRequest,
+) (*sessionsV1.GetSessionByUserResponse, error) {
 	serv.cfg.logger.Info("get session by user")
 	userID, err := authenticatedUserID(ctx, serv.cfg, "")
 	if err != nil {
@@ -170,7 +206,10 @@ func (serv *SessionService) GetSessionByUser(ctx context.Context, req *sessionsV
 	return resp, nil
 }
 
-func (serv *SessionService) UpdateSession(ctx context.Context, req *sessionsV1.UpdateSessionRequest) (*sessionsV1.UpdateSessionResponse, error) {
+func (serv *SessionService) UpdateSession(
+	ctx context.Context,
+	req *sessionsV1.UpdateSessionRequest,
+) (*sessionsV1.UpdateSessionResponse, error) {
 	serv.cfg.logger.Info("update session", "session_id", req.SessionId)
 	userID, err := authenticatedUserID(ctx, serv.cfg, "")
 	if err != nil {

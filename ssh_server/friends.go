@@ -120,21 +120,39 @@ func addFriend(accessToken, username, grpcPort string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
 	defer cancel()
 	ctx = bearerContext(ctx, accessToken)
-	user, err := usersv1.NewUserServiceClient(conn).GetUserByUsername(ctx, &usersv1.GetUserByUsernameRequest{Username: username})
+	user, err := usersv1.NewUserServiceClient(
+		conn,
+	).GetUserByUsername(
+		ctx,
+		&usersv1.GetUserByUsernameRequest{
+			Username: username,
+		},
+	)
 	if err != nil {
 		return fmt.Errorf("get friend: %w", err)
 	}
 	if user.UserId == "" {
 		return fmt.Errorf("get friend returned no user ID")
 	}
-	_, err = friendsv1.NewFriendServiceClient(conn).AddFriend(ctx, &friendsv1.AddFriendRequest{FriendId: user.UserId})
+	_, err = friendsv1.NewFriendServiceClient(
+		conn,
+	).AddFriend(
+		ctx,
+		&friendsv1.AddFriendRequest{
+			FriendId: user.UserId,
+		},
+	)
 	if err != nil {
 		return fmt.Errorf("add friend: %w", err)
 	}
 	return nil
 }
 
-func resolveFriendRequest(userID, accessToken, grpcPort string, request *friendsv1.GetFriendsItem, action friendRequestAction) error {
+func resolveFriendRequest(
+	userID, accessToken, grpcPort string,
+	request *friendsv1.GetFriendsItem,
+	action friendRequestAction,
+) error {
 	conn, err := newGRPCClient("localhost:" + grpcPort)
 	if err != nil {
 		return err
@@ -150,11 +168,29 @@ func resolveFriendRequest(userID, accessToken, grpcPort string, request *friends
 	}
 	switch action {
 	case cancelFriendRequest:
-		_, err = client.RemoveFriend(ctx, &friendsv1.RemoveFriendRequest{FriendshipId: request.FriendshipId, FriendId: friendID})
+		_, err = client.RemoveFriend(
+			ctx,
+			&friendsv1.RemoveFriendRequest{
+				FriendshipId: request.FriendshipId,
+				FriendId:     friendID,
+			},
+		)
 	case acceptFriendRequest:
-		_, err = client.AcceptFriend(ctx, &friendsv1.AcceptFriendRequest{FriendshipId: request.FriendshipId, FriendId: friendID})
+		_, err = client.AcceptFriend(
+			ctx,
+			&friendsv1.AcceptFriendRequest{
+				FriendshipId: request.FriendshipId,
+				FriendId:     friendID,
+			},
+		)
 	case declineFriendRequest:
-		_, err = client.RejectFriend(ctx, &friendsv1.RejectFriendRequest{FriendshipId: request.FriendshipId, FriendId: friendID})
+		_, err = client.RejectFriend(
+			ctx,
+			&friendsv1.RejectFriendRequest{
+				FriendshipId: request.FriendshipId,
+				FriendId:     friendID,
+			},
+		)
 	}
 	return err
 }

@@ -86,7 +86,12 @@ func authenticate(clientID string) (GHResponse, error) {
 	return ghRes, nil
 }
 
-func pollForToken(clientID string, deviceCode string, interval time.Duration, expiresIn int) (PollResponse, error) {
+func pollForToken(
+	clientID string,
+	deviceCode string,
+	interval time.Duration,
+	expiresIn int,
+) (PollResponse, error) {
 	expiresAt := time.Now().Add(time.Duration(expiresIn) * time.Second)
 	ctx, cancel := context.WithDeadline(context.Background(), expiresAt)
 	defer cancel()
@@ -129,7 +134,12 @@ func pollForToken(clientID string, deviceCode string, interval time.Duration, ex
 		res.Body.Close()
 		cancelRequest()
 		if res.StatusCode != http.StatusOK {
-			return PollResponse{}, fmt.Errorf("token request failed (HTTP %d): %s %s", res.StatusCode, pollRes.Error, pollRes.ErrorDescription)
+			return PollResponse{}, fmt.Errorf(
+				"token request failed (HTTP %d): %s %s",
+				res.StatusCode,
+				pollRes.Error,
+				pollRes.ErrorDescription,
+			)
 		}
 		if err != nil {
 			return PollResponse{}, fmt.Errorf("error decoding poll response: %w", err)

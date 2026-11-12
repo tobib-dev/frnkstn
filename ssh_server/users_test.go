@@ -25,7 +25,17 @@ func mockGitHubUser(t *testing.T) {
 		if r.URL.String() != "https://api.github.com/user" || r.Header.Get("Authorization") != "Bearer test-token" {
 			t.Errorf("incorrect GitHub request")
 		}
-		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"id":123,"name":"Alice","login":"alice-gh"}`)), Header: make(http.Header)}, nil
+		return &http.Response{
+			StatusCode: 200,
+			Body: io.NopCloser(
+				strings.NewReader(
+					`{"id":123,"name":"Alice","login":"alice-gh"}`,
+				),
+			),
+			Header: make(
+				http.Header,
+			),
+		}, nil
 	})}
 }
 
@@ -34,7 +44,10 @@ type failingUserServer struct {
 	err error
 }
 
-func (s failingUserServer) GetUserByGHID(context.Context, *usersV1.GetUserByGHIDRequest) (*usersV1.GetUserByGHIDResponse, error) {
+func (s failingUserServer) GetUserByGHID(
+	context.Context,
+	*usersV1.GetUserByGHIDRequest,
+) (*usersV1.GetUserByGHIDResponse, error) {
 	return &usersV1.GetUserByGHIDResponse{}, s.err
 }
 

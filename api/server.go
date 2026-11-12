@@ -99,7 +99,14 @@ func main() {
 		session: *db,
 	}
 
-	server := grpc.NewServer(grpc.StatsHandler(rpclog.Handler{Message: "api request completed", Log: logger.Info}))
+	server := grpc.NewServer(
+		grpc.StatsHandler(
+			rpclog.Handler{
+				Message: "api request completed",
+				Log:     logger.Info,
+			},
+		),
+	)
 
 	// Inject DB into services and register services
 	userService := NewUserService(&cfg)

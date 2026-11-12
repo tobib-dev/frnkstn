@@ -145,7 +145,13 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.home.session = m.signIn.session
 		m.home.user = m.signIn.user
 		m.home.grpcPort = m.signIn.grpcPort
-		m.home.messages = newMessagesModel(m.width, m.height, m.home.user.userID, m.home.session.internalAccessToken, m.home.grpcPort)
+		m.home.messages = newMessagesModel(
+			m.width,
+			m.height,
+			m.home.user.userID,
+			m.home.session.internalAccessToken,
+			m.home.grpcPort,
+		)
 		m.home.messages.loadingFriends = true
 		m.home.notificationPolling = true
 		return m, tea.Batch(

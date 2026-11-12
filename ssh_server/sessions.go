@@ -37,7 +37,10 @@ func createSession(token githubTokenInfo, userID, grpcPort string) (sessionInfo,
 	if err != nil {
 		return sessionInfo{}, fmt.Errorf("failed to create session: %w", err)
 	}
-	if resp.SessionId == "" || resp.UserId != userID || resp.InternalAccessToken == "" || resp.InternalRefreshToken == "" {
+	if resp.SessionId == "" ||
+		resp.UserId != userID ||
+		resp.InternalAccessToken == "" ||
+		resp.InternalRefreshToken == "" {
 		return sessionInfo{}, fmt.Errorf("invalid session response")
 	}
 	sessInfo := sessionInfo{

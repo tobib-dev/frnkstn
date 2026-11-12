@@ -18,29 +18,65 @@ type tuiServerTestService struct {
 	serversv1.UnimplementedServerServiceServer
 }
 
-func (*tuiServerTestService) GetUserServers(context.Context, *serversv1.GetUserServersRequest) (*serversv1.GetUserServersResponse, error) {
-	return &serversv1.GetUserServersResponse{Items: []*serversv1.UserServerItem{{ServerId: "server", ServerName: "Original"}}}, nil
+func (*tuiServerTestService) GetUserServers(
+	context.Context,
+	*serversv1.GetUserServersRequest,
+) (*serversv1.GetUserServersResponse, error) {
+	return &serversv1.GetUserServersResponse{
+		Items: []*serversv1.UserServerItem{
+			{
+				ServerId:   "server",
+				ServerName: "Original",
+			},
+		},
+	}, nil
 }
 
-func (*tuiServerTestService) GetServer(_ context.Context, req *serversv1.GetServerRequest) (*serversv1.GetServerResponse, error) {
+func (*tuiServerTestService) GetServer(
+	_ context.Context,
+	req *serversv1.GetServerRequest,
+) (*serversv1.GetServerResponse, error) {
 	if req.ServerId != "server" {
 		return nil, status.Error(codes.NotFound, "missing")
 	}
-	return &serversv1.GetServerResponse{Item: &serversv1.ServerItem{ServerId: "server", ServerName: "Original", ServerBio: "Bio", Owner: "owner"}}, nil
+	return &serversv1.GetServerResponse{
+		Item: &serversv1.ServerItem{
+			ServerId:   "server",
+			ServerName: "Original",
+			ServerBio:  "Bio",
+			Owner:      "owner",
+		},
+	}, nil
 }
 
-func (*tuiServerTestService) CreateServer(_ context.Context, req *serversv1.CreateServerRequest) (*serversv1.CreateServerResponse, error) {
-	return &serversv1.CreateServerResponse{Item: &serversv1.ServerItem{ServerId: "created", ServerName: req.ServerName, ServerBio: req.ServerBio, Owner: "owner"}}, nil
+func (*tuiServerTestService) CreateServer(
+	_ context.Context,
+	req *serversv1.CreateServerRequest,
+) (*serversv1.CreateServerResponse, error) {
+	return &serversv1.CreateServerResponse{
+		Item: &serversv1.ServerItem{
+			ServerId:   "created",
+			ServerName: req.ServerName,
+			ServerBio:  req.ServerBio,
+			Owner:      "owner",
+		},
+	}, nil
 }
 
-func (*tuiServerTestService) EditServer(_ context.Context, req *serversv1.EditServerRequest) (*serversv1.EditServerResponse, error) {
+func (*tuiServerTestService) EditServer(
+	_ context.Context,
+	req *serversv1.EditServerRequest,
+) (*serversv1.EditServerResponse, error) {
 	if req.Item.ServerId != "server" || req.Item.Owner != "owner" {
 		return nil, status.Error(codes.InvalidArgument, "identity changed")
 	}
 	return &serversv1.EditServerResponse{Item: req.Item}, nil
 }
 
-func (*tuiServerTestService) DeleteServer(_ context.Context, req *serversv1.DeleteServerRequest) (*serversv1.DeleteServerResponse, error) {
+func (*tuiServerTestService) DeleteServer(
+	_ context.Context,
+	req *serversv1.DeleteServerRequest,
+) (*serversv1.DeleteServerResponse, error) {
 	if req.ServerId != "server" {
 		return nil, status.Error(codes.NotFound, "missing")
 	}
@@ -52,13 +88,22 @@ func TestHomeServerFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := grpc.NewServer(grpc.UnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		md, _ := metadata.FromIncomingContext(ctx)
-		if values := md.Get("authorization"); len(values) != 1 || values[0] != "Bearer internal-token" {
-			return nil, status.Error(codes.Unauthenticated, "missing bearer token")
-		}
-		return handler(ctx, req)
-	}))
+	server := grpc.NewServer(
+		grpc.UnaryInterceptor(
+			func(
+				ctx context.Context,
+				req any,
+				info *grpc.UnaryServerInfo,
+				handler grpc.UnaryHandler,
+			) (any, error) {
+				md, _ := metadata.FromIncomingContext(ctx)
+				if values := md.Get("authorization"); len(values) != 1 || values[0] != "Bearer internal-token" {
+					return nil, status.Error(codes.Unauthenticated, "missing bearer token")
+				}
+				return handler(ctx, req)
+			},
+		),
+	)
 	serversv1.RegisterServerServiceServer(server, &tuiServerTestService{})
 	t.Cleanup(server.Stop)
 	go server.Serve(listener)
@@ -102,7 +147,9 @@ func TestHomeServerFlow(t *testing.T) {
 	m.servers.bio.SetValue("New bio")
 	m, cmd = m.Update(enter)
 	m, _ = m.Update(cmd())
-	if m.servers.page != serverDetails || m.servers.item.ServerName != "New server" || m.servers.item.ServerBio != "New bio" {
+	if m.servers.page != serverDetails ||
+		m.servers.item.ServerName != "New server" ||
+		m.servers.item.ServerBio != "New bio" {
 		t.Fatal("server not created")
 	}
 	m, _ = m.Update(esc)

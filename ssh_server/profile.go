@@ -52,7 +52,15 @@ func newProfileModel(user userInfo, accessToken, grpcPort string) profileModel {
 	username.SetVirtualCursor(true)
 	name.SetValue(user.name)
 	username.SetValue(user.username)
-	return profileModel{name: name, username: username, userID: user.userID, accessToken: accessToken, grpcPort: grpcPort, loadingRequests: true, requestCursor: -1}
+	return profileModel{
+		name:            name,
+		username:        username,
+		userID:          user.userID,
+		accessToken:     accessToken,
+		grpcPort:        grpcPort,
+		loadingRequests: true,
+		requestCursor:   -1,
+	}
 }
 
 func (m profileModel) Update(msg tea.Msg) (profileModel, tea.Cmd) {
@@ -176,7 +184,15 @@ func (m profileModel) Update(msg tea.Msg) (profileModel, tea.Cmd) {
 			m.name.Blur()
 			m.username.Blur()
 			return m, func() tea.Msg {
-				user, err := updateUser(userInfo{userID: m.userID, name: name, username: username}, m.accessToken, m.grpcPort)
+				user, err := updateUser(
+					userInfo{
+						userID:   m.userID,
+						name:     name,
+						username: username,
+					},
+					m.accessToken,
+					m.grpcPort,
+				)
 				if err != nil {
 					return profileFailedMsg{err: err}
 				}
@@ -233,7 +249,16 @@ func (m profileModel) updateSelectedRequest(msg tea.Msg) (profileModel, tea.Cmd)
 
 func (m profileModel) requestActions() []friendRequestOption {
 	if m.selectedRequest.GetUserId() == m.userID {
-		return []friendRequestOption{{label: "Cancel", action: cancelFriendRequest, message: "Friend request canceled"}, {label: "Home"}}
+		return []friendRequestOption{
+			{
+				label:   "Cancel",
+				action:  cancelFriendRequest,
+				message: "Friend request canceled",
+			},
+			{
+				label: "Home",
+			},
+		}
 	}
 	return []friendRequestOption{
 		{label: "Accept", action: acceptFriendRequest, message: "Friend request accepted"},
@@ -297,5 +322,7 @@ func (m profileModel) View() string {
 			view += "\n" + cursor + username
 		}
 	}
-	return view + "\n\nTab to switch fields and requests • Enter to continue • d to delete account • Esc to cancel • Ctrl+C to quit"
+	return view +
+		"\n\nTab to switch fields and requests • Enter to continue • " +
+		"d to delete account • Esc to cancel • Ctrl+C to quit"
 }

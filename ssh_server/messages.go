@@ -161,8 +161,19 @@ func newMessagesModel(width, height int, userID, accessToken, grpcPort string) m
 	input.Prompt = "Message: "
 	input.SetVirtualCursor(true)
 	return messagesModel{
-		list: messages, friends: friends, input: input, userID: userID, accessToken: accessToken, grpcPort: grpcPort,
-		loading: true, friendNames: make(map[string]string), friendsByDM: make(map[string]*friendsv1.GetFriendsItem),
+		list:        messages,
+		friends:     friends,
+		input:       input,
+		userID:      userID,
+		accessToken: accessToken,
+		grpcPort:    grpcPort,
+		loading:     true,
+		friendNames: make(
+			map[string]string,
+		),
+		friendsByDM: make(
+			map[string]*friendsv1.GetFriendsItem,
+		),
 	}
 }
 
@@ -240,7 +251,18 @@ func (m messagesModel) Update(msg tea.Msg) (messagesModel, tea.Cmd) {
 		m.loading = false
 		m.conversation = mergeMessages(nil, msg.items)
 		m.setLastMessageTime(msg.dmID, msg.cursor)
-		return m, markMessagesRead(m.userID, m.accessToken, m.grpcPort, msg.dmID, msg.items, startMessageStream(m.accessToken, m.grpcPort, m.selectedDM))
+		return m, markMessagesRead(
+			m.userID,
+			m.accessToken,
+			m.grpcPort,
+			msg.dmID,
+			msg.items,
+			startMessageStream(
+				m.accessToken,
+				m.grpcPort,
+				m.selectedDM,
+			),
+		)
 	case conversationLoadFailedMsg:
 		if m.isViewing(msg.dmID) {
 			m.loading = false
@@ -264,7 +286,19 @@ func (m messagesModel) Update(msg tea.Msg) (messagesModel, tea.Cmd) {
 		if cursor, ok := messageTime(msg.item); ok {
 			m.setLastMessageTime(msg.dmID, cursor)
 		}
-		return m, markMessagesRead(m.userID, m.accessToken, m.grpcPort, msg.dmID, []*dmsv1.DirectMessageItem{msg.item}, receiveMessage(msg.dmID, msg.subscription))
+		return m, markMessagesRead(
+			m.userID,
+			m.accessToken,
+			m.grpcPort,
+			msg.dmID,
+			[]*dmsv1.DirectMessageItem{
+				msg.item,
+			},
+			receiveMessage(
+				msg.dmID,
+				msg.subscription,
+			),
+		)
 	case messagesReadMsg:
 		return m, nil
 	case messageStreamClosedMsg:
@@ -551,7 +585,12 @@ func fetchMessageFriends(accessToken, grpcPort string) tea.Cmd {
 	}
 }
 
-func sendDirectMessage(userID, accessToken, grpcPort string, friend *friendsv1.GetFriendsItem, content string, ongoing bool) tea.Cmd {
+func sendDirectMessage(
+	userID, accessToken, grpcPort string,
+	friend *friendsv1.GetFriendsItem,
+	content string,
+	ongoing bool,
+) tea.Cmd {
 	return func() tea.Msg {
 		if friend == nil {
 			return messageSendFailedMsg{err: fmt.Errorf("friend is required"), ongoing: ongoing}
@@ -568,14 +607,30 @@ func sendDirectMessage(userID, accessToken, grpcPort string, friend *friendsv1.G
 		ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
 		defer cancel()
 		ctx = bearerContext(ctx, accessToken)
-		response, err := dmsv1.NewDMServiceClient(conn).SendMessages(ctx, &dmsv1.SendMessagesRequest{Item: &dmsv1.DirectMessageItem{
-			DmId: friend.GetFriendshipId(), AuthorId: userID, ReceiverId: receiverID, Content: content,
-		}})
+		response, err := dmsv1.NewDMServiceClient(
+			conn,
+		).SendMessages(
+			ctx,
+			&dmsv1.SendMessagesRequest{
+				Item: &dmsv1.DirectMessageItem{
+					DmId:       friend.GetFriendshipId(),
+					AuthorId:   userID,
+					ReceiverId: receiverID,
+					Content:    content,
+				},
+			},
+		)
 		if err != nil {
 			return messageSendFailedMsg{dmID: friend.GetFriendshipId(), err: err, ongoing: ongoing}
 		}
 		if response.GetItem() == nil {
-			return messageSendFailedMsg{dmID: friend.GetFriendshipId(), err: fmt.Errorf("sent message is missing"), ongoing: ongoing}
+			return messageSendFailedMsg{
+				dmID: friend.GetFriendshipId(),
+				err: fmt.Errorf(
+					"sent message is missing",
+				),
+				ongoing: ongoing,
+			}
 		}
 		return messageSentMsg{item: response.GetItem(), ongoing: ongoing}
 	}
@@ -607,7 +662,11 @@ func fetchConversation(dmID, accessToken, grpcPort string) tea.Cmd {
 	}
 }
 
-func markMessagesRead(userID, accessToken, grpcPort, dmID string, items []*dmsv1.DirectMessageItem, next tea.Cmd) tea.Cmd {
+func markMessagesRead(
+	userID, accessToken, grpcPort, dmID string,
+	items []*dmsv1.DirectMessageItem,
+	next tea.Cmd,
+) tea.Cmd {
 	messageIDs := make([]string, 0, len(items))
 	for _, item := range items {
 		if item.GetReceiverId() == userID && !item.GetRead() && item.GetMessageId() != "" {
@@ -672,7 +731,15 @@ func startMessageStream(accessToken, grpcPort string, metadata *dmsv1.DirectMess
 			conn.Close()
 			return messageStreamFailedMsg{dmID: dmID, err: err}
 		}
-		return messageStreamStartedMsg{dmID: dmID, subscription: &messageSubscription{conn: conn, stream: stream, cancel: cancel, startedAt: startedAt}}
+		return messageStreamStartedMsg{
+			dmID: dmID,
+			subscription: &messageSubscription{
+				conn:      conn,
+				stream:    stream,
+				cancel:    cancel,
+				startedAt: startedAt,
+			},
+		}
 	}
 }
 
@@ -697,7 +764,17 @@ func receiveMessage(dmID string, subscription *messageSubscription) tea.Cmd {
 			return messageStreamFailedMsg{dmID: dmID, err: err, subscription: subscription}
 		}
 		if !subscription.firstResponseLogged {
-			log.Info("subscription first response received", "method", dmsv1.DMService_SubscribeMessages_FullMethodName, "dm_id", dmID, "time_to_first_response_ms", time.Since(subscription.startedAt).Seconds()*1000)
+			log.Info(
+				"subscription first response received",
+				"method",
+				dmsv1.DMService_SubscribeMessages_FullMethodName,
+				"dm_id",
+				dmID,
+				"time_to_first_response_ms",
+				time.Since(
+					subscription.startedAt,
+				).Seconds()*1000,
+			)
 			subscription.firstResponseLogged = true
 		}
 		return messageStreamReceivedMsg{dmID: dmID, item: item, subscription: subscription}
@@ -715,7 +792,10 @@ func mergeMessages(current, loaded []*dmsv1.DirectMessageItem) []*dmsv1.DirectMe
 	return messages
 }
 
-func appendMessage(messages []*dmsv1.DirectMessageItem, item *dmsv1.DirectMessageItem) []*dmsv1.DirectMessageItem {
+func appendMessage(
+	messages []*dmsv1.DirectMessageItem,
+	item *dmsv1.DirectMessageItem,
+) []*dmsv1.DirectMessageItem {
 	if item == nil {
 		return messages
 	}

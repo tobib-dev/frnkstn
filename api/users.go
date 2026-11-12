@@ -23,7 +23,10 @@ func NewUserService(cfg *Config) *UserService {
 	return &UserService{cfg: cfg, store: &cfg.db.session}
 }
 
-func (serv *UserService) CreateUser(ctx context.Context, guest *usersV1.CreateUserRequest) (*usersV1.CreateUserResponse, error) {
+func (serv *UserService) CreateUser(
+	ctx context.Context,
+	guest *usersV1.CreateUserRequest,
+) (*usersV1.CreateUserResponse, error) {
 	username := strings.TrimSpace(guest.Username)
 	userID := gocql.TimeUUID()
 	if username == "" {
@@ -61,7 +64,10 @@ func (serv *UserService) CreateUser(ctx context.Context, guest *usersV1.CreateUs
  * Since the only field that can be updated are the username,
  * and name we only need to handle that field in the update request.
  */
-func (serv *UserService) UpdateUser(ctx context.Context, req *usersV1.UpdateUserRequest) (*usersV1.UpdateUserResponse, error) {
+func (serv *UserService) UpdateUser(
+	ctx context.Context,
+	req *usersV1.UpdateUserRequest,
+) (*usersV1.UpdateUserResponse, error) {
 	username := strings.TrimSpace(req.Username)
 	name := strings.TrimSpace(req.Name)
 	if username == "" || name == "" {
@@ -92,7 +98,10 @@ func (serv *UserService) UpdateUser(ctx context.Context, req *usersV1.UpdateUser
 	}, nil
 }
 
-func (serv *UserService) GetUser(ctx context.Context, req *usersV1.GetUserRequest) (*usersV1.GetUserResponse, error) {
+func (serv *UserService) GetUser(
+	ctx context.Context,
+	req *usersV1.GetUserRequest,
+) (*usersV1.GetUserResponse, error) {
 	userID, err := authenticatedUserID(ctx, serv.cfg, "")
 	if err != nil {
 		return nil, err
@@ -111,7 +120,10 @@ func (serv *UserService) GetUser(ctx context.Context, req *usersV1.GetUserReques
 	}, nil
 }
 
-func (serv *UserService) GetUserByUsername(ctx context.Context, req *usersV1.GetUserByUsernameRequest) (*usersV1.GetUserByUsernameResponse, error) {
+func (serv *UserService) GetUserByUsername(
+	ctx context.Context,
+	req *usersV1.GetUserByUsernameRequest,
+) (*usersV1.GetUserByUsernameResponse, error) {
 	if _, err := authenticatedUserID(ctx, serv.cfg, ""); err != nil {
 		return nil, err
 	}
@@ -135,7 +147,10 @@ func (serv *UserService) GetUserByUsername(ctx context.Context, req *usersV1.Get
 	}, nil
 }
 
-func (serv *UserService) GetUserByGHID(ctx context.Context, req *usersV1.GetUserByGHIDRequest) (*usersV1.GetUserByGHIDResponse, error) {
+func (serv *UserService) GetUserByGHID(
+	ctx context.Context,
+	req *usersV1.GetUserByGHIDRequest,
+) (*usersV1.GetUserByGHIDResponse, error) {
 	githubID, err := strconv.ParseInt(req.GithubUserId, 10, 64)
 	if err != nil || githubID <= 0 {
 		return nil, status.Error(codes.InvalidArgument, "GitHub ID is required")
@@ -148,10 +163,18 @@ func (serv *UserService) GetUserByGHID(ctx context.Context, req *usersV1.GetUser
 		}
 		return nil, status.Error(codes.Internal, "could not get user")
 	}
-	return &usersV1.GetUserByGHIDResponse{GithubUserId: req.GithubUserId, UserId: user.ID.String(), Name: user.Name, Username: user.Username}, nil
+	return &usersV1.GetUserByGHIDResponse{
+		GithubUserId: req.GithubUserId,
+		UserId:       user.ID.String(),
+		Name:         user.Name,
+		Username:     user.Username,
+	}, nil
 }
 
-func (serv *UserService) DeleteUser(ctx context.Context, req *usersV1.DeleteUserRequest) (*usersV1.DeleteUserResponse, error) {
+func (serv *UserService) DeleteUser(
+	ctx context.Context,
+	req *usersV1.DeleteUserRequest,
+) (*usersV1.DeleteUserResponse, error) {
 	userUUID, err := authenticatedUserID(ctx, serv.cfg, "")
 	if err != nil {
 		return nil, err

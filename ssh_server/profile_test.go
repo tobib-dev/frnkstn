@@ -21,7 +21,10 @@ type profileTestServer struct {
 	deleteFail bool
 }
 
-func (s *profileTestServer) DeleteUser(_ context.Context, req *usersV1.DeleteUserRequest) (*usersV1.DeleteUserResponse, error) {
+func (s *profileTestServer) DeleteUser(
+	_ context.Context,
+	req *usersV1.DeleteUserRequest,
+) (*usersV1.DeleteUserResponse, error) {
 	s.deletes <- req
 	if s.deleteFail {
 		return nil, status.Error(codes.Unavailable, "unavailable")
@@ -29,7 +32,10 @@ func (s *profileTestServer) DeleteUser(_ context.Context, req *usersV1.DeleteUse
 	return &usersV1.DeleteUserResponse{Status: "deleted"}, nil
 }
 
-func (s *profileTestServer) UpdateUser(_ context.Context, req *usersV1.UpdateUserRequest) (*usersV1.UpdateUserResponse, error) {
+func (s *profileTestServer) UpdateUser(
+	_ context.Context,
+	req *usersV1.UpdateUserRequest,
+) (*usersV1.UpdateUserResponse, error) {
 	s.requests <- req
 	if s.fail {
 		return nil, status.Error(codes.AlreadyExists, "taken")
@@ -48,7 +54,17 @@ func TestProfileSave(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			service := &profileTestServer{requests: make(chan *usersV1.UpdateUserRequest, 1), deletes: make(chan *usersV1.DeleteUserRequest, 1), fail: fail}
+			service := &profileTestServer{
+				requests: make(
+					chan *usersV1.UpdateUserRequest,
+					1,
+				),
+				deletes: make(
+					chan *usersV1.DeleteUserRequest,
+					1,
+				),
+				fail: fail,
+			}
 			server := grpc.NewServer()
 			usersV1.RegisterUserServiceServer(server, service)
 			t.Cleanup(server.Stop)
@@ -63,7 +79,9 @@ func TestProfileSave(t *testing.T) {
 			m.home.list.Select(4)
 			updated, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 			m = updated.(mainModel)
-			if m.home.state != homeEditingProfile || m.home.profile.name.Value() != "Alice" || m.home.profile.username.Value() != "alice" {
+			if m.home.state != homeEditingProfile ||
+				m.home.profile.name.Value() != "Alice" ||
+				m.home.profile.username.Value() != "alice" {
 				t.Fatal("profile was not prefilled")
 			}
 			if !m.home.profile.name.Focused() || m.home.profile.username.Focused() {
@@ -98,7 +116,14 @@ func TestProfileSave(t *testing.T) {
 			updated, _ = m.Update(result)
 			m = updated.(mainModel)
 			if fail {
-				if m.home.state != homeEditingProfile || m.home.profile.saving || m.signIn.user != original || m.home.user != original || !strings.Contains(m.View().Content, "Username already exists") {
+				if m.home.state != homeEditingProfile ||
+					m.home.profile.saving ||
+					m.signIn.user != original ||
+					m.home.user != original ||
+					!strings.Contains(
+						m.View().Content,
+						"Username already exists",
+					) {
 					t.Fatal("failed save did not preserve profile and show error")
 				}
 				if m.home.profile.name.Value() != "  Alice Example  " {
@@ -133,14 +158,37 @@ func TestProfileDeleteAccount(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			service := &profileTestServer{requests: make(chan *usersV1.UpdateUserRequest, 1), deletes: make(chan *usersV1.DeleteUserRequest, 1), deleteFail: deleteFail}
+			service := &profileTestServer{
+				requests: make(
+					chan *usersV1.UpdateUserRequest,
+					1,
+				),
+				deletes: make(
+					chan *usersV1.DeleteUserRequest,
+					1,
+				),
+				deleteFail: deleteFail,
+			}
 			server := grpc.NewServer()
 			usersV1.RegisterUserServiceServer(server, service)
 			t.Cleanup(server.Stop)
 			go server.Serve(listener)
 			_, port, _ := net.SplitHostPort(listener.Addr().String())
 
-			m := mainModel{width: 80, height: 24, home: newHomeModel(80, 24), signIn: newSignInModel(80, 24, "client", port)}
+			m := mainModel{
+				width:  80,
+				height: 24,
+				home: newHomeModel(
+					80,
+					24,
+				),
+				signIn: newSignInModel(
+					80,
+					24,
+					"client",
+					port,
+				),
+			}
 			m.signIn.user = userInfo{userID: "user", name: "Alice", username: "alice"}
 			m.signIn.session = sessionInfo{sessionID: "session", userID: "user", internalAccessToken: "access"}
 			updated, _ := m.Update(SwitchToHomeMsg{})
@@ -150,7 +198,12 @@ func TestProfileDeleteAccount(t *testing.T) {
 			m = updated.(mainModel)
 			updated, cmd := m.Update(tea.KeyPressMsg{Code: 'd', Text: "d"})
 			m = updated.(mainModel)
-			if cmd != nil || !m.home.profile.confirmDelete || !strings.Contains(m.View().Content, "Delete this account") {
+			if cmd != nil ||
+				!m.home.profile.confirmDelete ||
+				!strings.Contains(
+					m.View().Content,
+					"Delete this account",
+				) {
 				t.Fatal("delete confirmation was not displayed")
 			}
 			updated, cmd = m.Update(tea.KeyPressMsg{Code: 'y', Text: "y"})
@@ -163,7 +216,12 @@ func TestProfileDeleteAccount(t *testing.T) {
 			updated, cmd = m.Update(result)
 			m = updated.(mainModel)
 			if deleteFail {
-				if m.home.state != homeEditingProfile || m.home.profile.deleting || !strings.Contains(m.View().Content, "Could not delete account") {
+				if m.home.state != homeEditingProfile ||
+					m.home.profile.deleting ||
+					!strings.Contains(
+						m.View().Content,
+						"Could not delete account",
+					) {
 					t.Fatal("delete failure did not preserve the profile form")
 				}
 				return

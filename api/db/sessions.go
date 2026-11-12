@@ -18,8 +18,15 @@ type SessionStore interface {
 }
 
 var sessionMetadata = table.Metadata{
-	Name:    "sessions",
-	Columns: []string{"id", "access_token", "expires_in", "refresh_token", "refresh_token_expires_in", "user_id"},
+	Name: "sessions",
+	Columns: []string{
+		"id",
+		"access_token",
+		"expires_in",
+		"refresh_token",
+		"refresh_token_expires_in",
+		"user_id",
+	},
 	PartKey: []string{"id"},
 }
 

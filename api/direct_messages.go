@@ -78,7 +78,14 @@ func (s *directMessageService) SendMessages(
 		return nil, status.Error(codes.InvalidArgument, "message content is required")
 	}
 
-	logger = logger.With("dm_id", dmID.String(), "author_id", authorID.String(), "receiver_id", receiverID.String())
+	logger = logger.With(
+		"dm_id",
+		dmID.String(),
+		"author_id",
+		authorID.String(),
+		"receiver_id",
+		receiverID.String(),
+	)
 	friendship, err := s.friends.GetFriend(ctx, dmID)
 	if errors.Is(err, gocql.ErrNotFound) {
 		logger.Info("friendship not found")
@@ -119,13 +126,19 @@ func (s *directMessageService) SendMessages(
 }
 
 func (s *directMessageService) publishMessageNotification(message db.DM, logger *slog.Logger) {
-	// shortcut: asynchronous publish can be lost during process shutdown; use an outbox when delivery must survive crashes.
+	// ponytail: async publish can be lost on shutdown; use an outbox for guaranteed delivery.
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		author, err := s.users.GetUserByID(ctx, message.AuthorID)
 		if err != nil {
-			logger.Error("failed to get message author for notification", "message_id", message.MessageID.String(), "error", err)
+			logger.Error(
+				"failed to get message author for notification",
+				"message_id",
+				message.MessageID.String(),
+				"error",
+				err,
+			)
 			return
 		}
 		s.n10n.publishMessageNotification(ctx, &ntfnV1.MsgN10NItem{
@@ -248,7 +261,14 @@ func (s *directMessageService) MarkMessagesRead(
 	if err != nil {
 		return nil, err
 	}
-	logger := s.cfg.logger.With("location", "MarkMessagesRead", "dm_id", dmID.String(), "user_id", userID.String())
+	logger := s.cfg.logger.With(
+		"location",
+		"MarkMessagesRead",
+		"dm_id",
+		dmID.String(),
+		"user_id",
+		userID.String(),
+	)
 	requested := make(map[gocql.UUID]struct{}, len(req.GetMessageIds()))
 	for _, value := range req.GetMessageIds() {
 		messageID, err := parseID(value, "message ID")
@@ -340,7 +360,15 @@ func (s *directMessageService) SubscribeMessages(
 				LastMessageTime: cursor,
 			})
 		if err != nil && err != gocql.ErrNotFound {
-			logger.Error("failed to get subscribed messages", "dm_id", dmID.String(), "location", "SubscribeMessages", "error", err)
+			logger.Error(
+				"failed to get subscribed messages",
+				"dm_id",
+				dmID.String(),
+				"location",
+				"SubscribeMessages",
+				"error",
+				err,
+			)
 			return status.Error(codes.Internal, "failed to subscribe to messages")
 		}
 
@@ -349,16 +377,42 @@ func (s *directMessageService) SubscribeMessages(
 			msg := msgs[i]
 			resp := messageItem(msg)
 			if err := stream.Send(resp); err != nil {
-				logger.Error("failed to stream message", "dm_id", dmID.String(), "message_id", msg.MessageID.String(), "location", "SubscribeMessages", "error", err)
+				logger.Error(
+					"failed to stream message",
+					"dm_id",
+					dmID.String(),
+					"message_id",
+					msg.MessageID.String(),
+					"location",
+					"SubscribeMessages",
+					"error",
+					err,
+				)
 				return err
 			}
 			cursor = msg.MessageID
-			logger.Info("message streamed", "dm_id", dmID.String(), "message_id", msg.MessageID.String(), "location", "SubscribeMessages")
+			logger.Info(
+				"message streamed",
+				"dm_id",
+				dmID.String(),
+				"message_id",
+				msg.MessageID.String(),
+				"location",
+				"SubscribeMessages",
+			)
 		}
 
 		select {
 		case <-ctx.Done():
-			logger.Info("message subscription closed", "dm_id", dmID.String(), "location", "SubscribeMessages", "reason", ctx.Err())
+			logger.Info(
+				"message subscription closed",
+				"dm_id",
+				dmID.String(),
+				"location",
+				"SubscribeMessages",
+				"reason",
+				ctx.Err(),
+			)
 			return status.FromContextError(ctx.Err()).Err()
 		case <-ticker.C:
 		}

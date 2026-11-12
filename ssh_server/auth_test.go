@@ -13,14 +13,20 @@ type authTestTransport func(*http.Request) (*http.Response, error)
 func TestPollForTokenBoundsStalledRequest(t *testing.T) {
 	originalClient := http.DefaultClient
 	t.Cleanup(func() { http.DefaultClient = originalClient })
-	http.DefaultClient = &http.Client{Transport: authTestTransport(func(req *http.Request) (*http.Response, error) {
-		deadline, ok := req.Context().Deadline()
-		if !ok || time.Until(deadline) > time.Second {
-			t.Fatal("request must be bounded by device code expiry")
-		}
-		<-req.Context().Done()
-		return nil, req.Context().Err()
-	})}
+	http.DefaultClient = &http.Client{
+		Transport: authTestTransport(
+			func(
+				req *http.Request,
+			) (*http.Response, error) {
+				deadline, ok := req.Context().Deadline()
+				if !ok || time.Until(deadline) > time.Second {
+					t.Fatal("request must be bounded by device code expiry")
+				}
+				<-req.Context().Done()
+				return nil, req.Context().Err()
+			},
+		),
+	}
 	_, err := pollForToken("test-client", "test-device", 0, 1)
 	if err == nil {
 		t.Fatal("expected stalled request to fail")
@@ -42,13 +48,19 @@ func TestPollForTokenStopsOnFailure(t *testing.T) {
 			originalClient := http.DefaultClient
 			t.Cleanup(func() { http.DefaultClient = originalClient })
 			calls := 0
-			http.DefaultClient = &http.Client{Transport: authTestTransport(func(req *http.Request) (*http.Response, error) {
-				calls++
-				if calls > 1 {
-					t.Fatal("polled again after a terminal failure")
-				}
-				return &http.Response{StatusCode: tc.status, Body: io.NopCloser(strings.NewReader(tc.body))}, nil
-			})}
+			http.DefaultClient = &http.Client{
+				Transport: authTestTransport(
+					func(
+						req *http.Request,
+					) (*http.Response, error) {
+						calls++
+						if calls > 1 {
+							t.Fatal("polled again after a terminal failure")
+						}
+						return &http.Response{StatusCode: tc.status, Body: io.NopCloser(strings.NewReader(tc.body))}, nil
+					},
+				),
+			}
 			_, err := pollForToken("test-client", "test-device", 0, 1)
 			if err == nil {
 				t.Fatal("expected a sign-in error")
@@ -68,18 +80,24 @@ func TestPollForTokenExpiryUsesSeconds(t *testing.T) {
 	originalClient := http.DefaultClient
 	t.Cleanup(func() { http.DefaultClient = originalClient })
 	calls := 0
-	http.DefaultClient = &http.Client{Transport: authTestTransport(func(req *http.Request) (*http.Response, error) {
-		calls++
-		body := `{"error":"authorization_pending"}`
-		if calls == 2 {
-			body = `{"access_token":"test-token"}`
-		}
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader(body)),
-		}, nil
-	})}
+	http.DefaultClient = &http.Client{
+		Transport: authTestTransport(
+			func(
+				req *http.Request,
+			) (*http.Response, error) {
+				calls++
+				body := `{"error":"authorization_pending"}`
+				if calls == 2 {
+					body = `{"access_token":"test-token"}`
+				}
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(body)),
+				}, nil
+			},
+		),
+	}
 
 	response, err := pollForToken("test-client", "test-device", 10*time.Millisecond, 1)
 	if err != nil {

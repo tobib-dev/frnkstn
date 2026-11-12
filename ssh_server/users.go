@@ -27,7 +27,17 @@ func getUser(githubID int64, grpcPort string) (userInfo, error) {
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
 	defer cancel()
-	response, err := usersV1.NewUserServiceClient(conn).GetUserByGHID(ctx, &usersV1.GetUserByGHIDRequest{GithubUserId: strconv.FormatInt(githubID, 10)})
+	response, err := usersV1.NewUserServiceClient(
+		conn,
+	).GetUserByGHID(
+		ctx,
+		&usersV1.GetUserByGHIDRequest{
+			GithubUserId: strconv.FormatInt(
+				githubID,
+				10,
+			),
+		},
+	)
 	if err != nil {
 		return userInfo{}, fmt.Errorf("get user: %w", err)
 	}
@@ -46,7 +56,19 @@ func createUser(name, username string, identity github.User, grpcPort string) (s
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
 	defer cancel()
-	response, err := usersV1.NewUserServiceClient(conn).CreateUser(ctx, &usersV1.CreateUserRequest{Username: username, Name: name, GithubUserId: strconv.FormatInt(identity.ID, 10)})
+	response, err := usersV1.NewUserServiceClient(
+		conn,
+	).CreateUser(
+		ctx,
+		&usersV1.CreateUserRequest{
+			Username: username,
+			Name:     name,
+			GithubUserId: strconv.FormatInt(
+				identity.ID,
+				10,
+			),
+		},
+	)
 	if err != nil {
 		return "", err
 	}
@@ -78,7 +100,15 @@ func updateUser(user userInfo, accessToken, grpcPort string) (userInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), authRequestTimeout)
 	defer cancel()
 	ctx = bearerContext(ctx, accessToken)
-	response, err := usersV1.NewUserServiceClient(conn).UpdateUser(ctx, &usersV1.UpdateUserRequest{Name: user.name, Username: user.username})
+	response, err := usersV1.NewUserServiceClient(
+		conn,
+	).UpdateUser(
+		ctx,
+		&usersV1.UpdateUserRequest{
+			Name:     user.name,
+			Username: user.username,
+		},
+	)
 	if err != nil {
 		return userInfo{}, fmt.Errorf("update user: %w", err)
 	}

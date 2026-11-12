@@ -53,7 +53,11 @@ func (s *testUserStore) GetUserByID(_ context.Context, id gocql.UUID) (db.User, 
 	return s.user, s.err
 }
 
-func (s *testUserStore) UpdateUser(_ context.Context, user db.User, params db.UpdateUserParams) (db.User, error) {
+func (s *testUserStore) UpdateUser(
+	_ context.Context,
+	user db.User,
+	params db.UpdateUserParams,
+) (db.User, error) {
 	s.updates++
 	if s.err != nil {
 		return db.User{}, s.err
@@ -78,19 +82,28 @@ type testInternalRefreshTokenStore struct {
 	token db.InternalRefreshToken
 }
 
-func (s *testInternalRefreshTokenStore) GetInternalRefreshTokenByGitHubID(context.Context, int64) (db.InternalRefreshToken, error) {
+func (s *testInternalRefreshTokenStore) GetInternalRefreshTokenByGitHubID(
+	context.Context,
+	int64,
+) (db.InternalRefreshToken, error) {
 	if s.token.Token == "" {
 		return db.InternalRefreshToken{}, gocql.ErrNotFound
 	}
 	return s.token, nil
 }
 
-func (s *testInternalRefreshTokenStore) CreateInternalRefreshToken(_ context.Context, token db.InternalRefreshToken) error {
+func (s *testInternalRefreshTokenStore) CreateInternalRefreshToken(
+	_ context.Context,
+	token db.InternalRefreshToken,
+) error {
 	s.token = token
 	return nil
 }
 
-func (s *testSessionStore) CreateSession(_ context.Context, params db.CreateSessionParams) (db.Session, error) {
+func (s *testSessionStore) CreateSession(
+	_ context.Context,
+	params db.CreateSessionParams,
+) (db.Session, error) {
 	s.params = params
 	s.creates++
 	return db.Session{ID: gocql.TimeUUID(), UserID: params.UserID}, nil
@@ -99,7 +112,10 @@ func (s *testSessionStore) GetSession(context.Context, db.GetSessionParams) (db.
 	return db.Session{}, gocql.ErrNotFound
 }
 
-func (s *testSessionStore) GetSessionByUser(context.Context, db.GetSessionByUserParams) (db.SessionByUser, error) {
+func (s *testSessionStore) GetSessionByUser(
+	context.Context,
+	db.GetSessionByUserParams,
+) (db.SessionByUser, error) {
 	return db.SessionByUser{}, gocql.ErrNotFound
 }
 
@@ -113,12 +129,33 @@ func TestGetUserByGitHubID(t *testing.T) {
 		err  error
 		code codes.Code
 	}{
-		{"found", nil, codes.OK}, {"missing", gocql.ErrNotFound, codes.NotFound}, {"database failure", errors.New("database down"), codes.Internal},
+		{
+			"found",
+			nil,
+			codes.OK,
+		},
+		{
+			"missing",
+			gocql.ErrNotFound,
+			codes.NotFound,
+		},
+		{
+			"database failure",
+			errors.New(
+				"database down",
+			),
+			codes.Internal,
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &testUserStore{user: db.User{ID: gocql.TimeUUID(), Username: "alice"}, err: tt.err}
 			service := &UserService{cfg: &Config{logger: slog.Default()}, store: store}
-			resp, err := service.GetUserByGHID(context.Background(), &usersV1.GetUserByGHIDRequest{GithubUserId: "123"})
+			resp, err := service.GetUserByGHID(
+				context.Background(),
+				&usersV1.GetUserByGHIDRequest{
+					GithubUserId: "123",
+				},
+			)
 			if status.Code(err) != tt.code || store.lookedUp != 123 {
 				t.Fatalf("lookup=%d err=%v", store.lookedUp, err)
 			}
@@ -132,11 +169,21 @@ func TestGetUserByGitHubID(t *testing.T) {
 func TestCreateUserGeneratesLocalID(t *testing.T) {
 	store := &testUserStore{}
 	service := &UserService{cfg: &Config{logger: slog.Default()}, store: store}
-	resp, err := service.CreateUser(context.Background(), &usersV1.CreateUserRequest{GithubUserId: "123", Username: " alice ", Name: "Alice"})
+	resp, err := service.CreateUser(
+		context.Background(),
+		&usersV1.CreateUserRequest{
+			GithubUserId: "123",
+			Username:     " alice ",
+			Name:         "Alice",
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if store.user.GitHubID != 123 || store.user.Username != "alice" || store.user.Name != "Alice" || resp.UserId != store.user.ID.String() {
+	if store.user.GitHubID != 123 ||
+		store.user.Username != "alice" ||
+		store.user.Name != "Alice" ||
+		resp.UserId != store.user.ID.String() {
 		t.Fatal("user was not created with a backend-generated ID")
 	}
 }
@@ -146,15 +193,37 @@ func TestCreateSessionDerivesUserFromGitHubToken(t *testing.T) {
 	store := &testSessionStore{}
 	tokens := &testInternalRefreshTokenStore{}
 	service := &SessionService{
-		cfg: &Config{logger: slog.Default(), signingKey: apiTestSigningKey}, store: store, tokens: tokens,
-		users:             &testUserStore{user: db.User{ID: id, GitHubID: 123}},
-		verifyGitHubToken: func(context.Context, string) (githubauth.User, error) { return githubauth.User{ID: 123}, nil },
+		cfg:    &Config{logger: slog.Default(), signingKey: apiTestSigningKey},
+		store:  store,
+		tokens: tokens,
+		users:  &testUserStore{user: db.User{ID: id, GitHubID: 123}},
+		verifyGitHubToken: func(
+			context.Context,
+			string,
+		) (githubauth.User, error) {
+			return githubauth.User{
+				ID: 123,
+			}, nil
+		},
 	}
-	resp, err := service.CreateSession(context.Background(), &sessionsV1.CreateSessionRequest{GithubAccessToken: "token", GithubAccessTokenExpiresAt: "3600", GithubRefreshToken: "refresh", GithubRefreshTokenExpiresAt: "7200"})
+	resp, err := service.CreateSession(
+		context.Background(),
+		&sessionsV1.CreateSessionRequest{
+			GithubAccessToken:           "token",
+			GithubAccessTokenExpiresAt:  "3600",
+			GithubRefreshToken:          "refresh",
+			GithubRefreshTokenExpiresAt: "7200",
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.UserId != id.String() || resp.InternalAccessToken == "" || resp.InternalRefreshToken == "" || store.params.UserID != id || store.params.GitHubRefreshToken != "refresh" || store.params.GitHubAccessTokenExpiresAt.IsZero() {
+	if resp.UserId != id.String() ||
+		resp.InternalAccessToken == "" ||
+		resp.InternalRefreshToken == "" ||
+		store.params.UserID != id ||
+		store.params.GitHubRefreshToken != "refresh" ||
+		store.params.GitHubAccessTokenExpiresAt.IsZero() {
 		t.Fatal("session missing user or token data")
 	}
 }

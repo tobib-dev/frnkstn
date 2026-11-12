@@ -19,7 +19,19 @@ func TestHandlerLogsCompletedRequest(t *testing.T) {
 	}}
 	ctx := handler.TagRPC(context.Background(), &stats.RPCTagInfo{FullMethodName: "/test.Service/Get"})
 	start := time.Now()
-	handler.HandleRPC(ctx, &stats.End{BeginTime: start, EndTime: start.Add(25 * time.Millisecond), Error: status.Error(codes.NotFound, "missing")})
+	handler.HandleRPC(
+		ctx,
+		&stats.End{
+			BeginTime: start,
+			EndTime: start.Add(
+				25 * time.Millisecond,
+			),
+			Error: status.Error(
+				codes.NotFound,
+				"missing",
+			),
+		},
+	)
 
 	want := []any{"method", "/test.Service/Get", "duration_ms", float64(25), "status", "NotFound"}
 	if message != "request completed" || !reflect.DeepEqual(fields, want) {

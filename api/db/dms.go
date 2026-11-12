@@ -184,14 +184,28 @@ func (db *DB) MarkMessagesRead(ctx context.Context, messages []DM) error {
 				Set("read").
 				Where(qb.Eq("id"), qb.Eq("message_id")).
 				Query(*db.Session)
-			if err := batch.BindMap(query, qb.M{"id": message.ID, "message_id": message.MessageID, "read": true}); err != nil {
+			if err := batch.BindMap(
+				query,
+				qb.M{
+					"id":         message.ID,
+					"message_id": message.MessageID,
+					"read":       true,
+				},
+			); err != nil {
 				return err
 			}
 			query = qb.Update(dmByMessageMetadata.Name).
 				Set("read").
 				Where(qb.Eq("message_id"), qb.Eq("id")).
 				Query(*db.Session)
-			if err := batch.BindMap(query, qb.M{"message_id": message.MessageID, "id": message.ID, "read": true}); err != nil {
+			if err := batch.BindMap(
+				query,
+				qb.M{
+					"message_id": message.MessageID,
+					"id":         message.ID,
+					"read":       true,
+				},
+			); err != nil {
 				return err
 			}
 		}

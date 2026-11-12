@@ -20,12 +20,21 @@ type signOutTestServer struct {
 	fail     bool
 }
 
-func (s *signOutTestServer) UpdateSession(_ context.Context, req *sessionsV1.UpdateSessionRequest) (*sessionsV1.UpdateSessionResponse, error) {
+func (s *signOutTestServer) UpdateSession(
+	_ context.Context,
+	req *sessionsV1.UpdateSessionRequest,
+) (*sessionsV1.UpdateSessionResponse, error) {
 	s.requests <- req
 	if s.fail {
 		return nil, status.Error(codes.Unavailable, "unavailable")
 	}
-	return &sessionsV1.UpdateSessionResponse{SessionId: req.SessionId, UserId: "user", SignedOutAt: time.Now().Format(time.RFC3339Nano)}, nil
+	return &sessionsV1.UpdateSessionResponse{
+		SessionId: req.SessionId,
+		UserId:    "user",
+		SignedOutAt: time.Now().Format(
+			time.RFC3339Nano,
+		),
+	}, nil
 }
 
 func TestHomeSignOut(t *testing.T) {
@@ -56,7 +65,20 @@ func TestHomeSignOut(t *testing.T) {
 				t.Cleanup(server.Stop)
 				go server.Serve(listener)
 				_, port, _ := net.SplitHostPort(listener.Addr().String())
-				m := mainModel{width: 80, height: 24, signIn: newSignInModel(80, 24, "client", port), home: newHomeModel(80, 24)}
+				m := mainModel{
+					width:  80,
+					height: 24,
+					signIn: newSignInModel(
+						80,
+						24,
+						"client",
+						port,
+					),
+					home: newHomeModel(
+						80,
+						24,
+					),
+				}
 				m.signIn.session = sessionInfo{sessionID: "session", userID: "user", internalAccessToken: "access"}
 				m.signIn.token = githubTokenInfo{AccessToken: "access", RefreshToken: "refresh"}
 				m.signIn.user = userInfo{userID: "user"}
@@ -65,7 +87,12 @@ func TestHomeSignOut(t *testing.T) {
 				m.home.list.Select(action.item)
 				updated, cmd := m.Update(action.key)
 				pending := updated.(mainModel)
-				if cmd == nil || pending.home.state != homeSigningOut || !strings.Contains(pending.View().Content, "Signing out") {
+				if cmd == nil ||
+					pending.home.state != homeSigningOut ||
+					!strings.Contains(
+						pending.View().Content,
+						"Signing out",
+					) {
 					t.Fatal("sign-out did not start")
 				}
 				_, duplicate := pending.Update(action.key)
@@ -80,7 +107,13 @@ func TestHomeSignOut(t *testing.T) {
 				updated, after := pending.Update(result)
 				done := updated.(mainModel)
 				if fail {
-					if done.state != homeView || done.home.state != homeReady || done.signIn.token.AccessToken != "access" || !strings.Contains(done.View().Content, "Sign out failed") {
+					if done.state != homeView ||
+						done.home.state != homeReady ||
+						done.signIn.token.AccessToken != "access" ||
+						!strings.Contains(
+							done.View().Content,
+							"Sign out failed",
+						) {
 						t.Fatal("failed sign-out did not retain login and show error")
 					}
 					_, retry := done.Update(action.key)
@@ -96,7 +129,11 @@ func TestHomeSignOut(t *testing.T) {
 							t.Fatal("successful sign-out did not quit")
 						}
 					}
-					if done.state != signInView || done.signIn.token != (githubTokenInfo{}) || done.signIn.session != (sessionInfo{}) || done.signIn.user != (userInfo{}) || done.home.session != (sessionInfo{}) {
+					if done.state != signInView ||
+						done.signIn.token != (githubTokenInfo{}) ||
+						done.signIn.session != (sessionInfo{}) ||
+						done.signIn.user != (userInfo{}) ||
+						done.home.session != (sessionInfo{}) {
 						t.Fatal("successful sign-out did not clear credentials and return to sign-in")
 					}
 					if done.signIn.grpcPort != port || done.signIn.clientID != "client" {

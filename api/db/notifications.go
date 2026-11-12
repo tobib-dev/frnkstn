@@ -103,7 +103,11 @@ func (db *DB) UpdateMessageNotification(ctx context.Context, userID, notificatio
 
 const notificationDeleteBatchSize = 25
 
-func (db *DB) DeleteMessageNotifications(ctx context.Context, userID gocql.UUID, messageIDs []gocql.UUID) error {
+func (db *DB) DeleteMessageNotifications(
+	ctx context.Context,
+	userID gocql.UUID,
+	messageIDs []gocql.UUID,
+) error {
 	if len(messageIDs) == 0 {
 		return nil
 	}

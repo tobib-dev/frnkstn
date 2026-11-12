@@ -22,7 +22,12 @@ func TestMakeJWT(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if claims.Subject != "user-id" || !claims.HasPermission("messages:read") || claims.IssuedAt == nil || claims.ExpiresAt == nil {
+	if claims.Subject != "user-id" ||
+		!claims.HasPermission(
+			"messages:read",
+		) ||
+		claims.IssuedAt == nil ||
+		claims.ExpiresAt == nil {
 		t.Fatalf("unexpected claims: %+v", claims)
 	}
 
@@ -61,11 +66,62 @@ func TestVerifyToken(t *testing.T) {
 		want   error
 	}{
 		{name: "valid", claims: valid, method: jwt.SigningMethodHS256, key: testSigningKey},
-		{name: "expired", claims: Claims{RegisteredClaims: jwt.RegisteredClaims{Subject: "user-id", ExpiresAt: jwt.NewNumericDate(time.Now().Add(-time.Hour))}}, method: jwt.SigningMethodHS256, key: testSigningKey, want: ErrInvalidToken},
-		{name: "missing expiration", claims: Claims{RegisteredClaims: jwt.RegisteredClaims{Subject: "user-id"}}, method: jwt.SigningMethodHS256, key: testSigningKey, want: ErrInvalidToken},
-		{name: "missing user", claims: Claims{RegisteredClaims: jwt.RegisteredClaims{ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))}}, method: jwt.SigningMethodHS256, key: testSigningKey, want: ErrInvalidToken},
-		{name: "wrong signature", claims: valid, method: jwt.SigningMethodHS256, key: "abcdefghijklmnopqrstuvwxyz123456", want: ErrInvalidToken},
-		{name: "wrong algorithm", claims: valid, method: jwt.SigningMethodHS384, key: testSigningKey, want: ErrInvalidToken},
+		{
+			name: "expired",
+			claims: Claims{
+				RegisteredClaims: jwt.RegisteredClaims{
+					Subject: "user-id",
+					ExpiresAt: jwt.NewNumericDate(
+						time.Now().Add(
+							-time.Hour,
+						),
+					),
+				},
+			},
+			method: jwt.SigningMethodHS256,
+			key:    testSigningKey,
+			want:   ErrInvalidToken,
+		},
+		{
+			name: "missing expiration",
+			claims: Claims{
+				RegisteredClaims: jwt.RegisteredClaims{
+					Subject: "user-id",
+				},
+			},
+			method: jwt.SigningMethodHS256,
+			key:    testSigningKey,
+			want:   ErrInvalidToken,
+		},
+		{
+			name: "missing user",
+			claims: Claims{
+				RegisteredClaims: jwt.RegisteredClaims{
+					ExpiresAt: jwt.NewNumericDate(
+						time.Now().Add(
+							time.Hour,
+						),
+					),
+				},
+			},
+			method: jwt.SigningMethodHS256,
+			key:    testSigningKey,
+			want:   ErrInvalidToken,
+		},
+		{
+			name:   "wrong signature",
+			claims: valid,
+			method: jwt.SigningMethodHS256,
+			key:    "abcdefghijklmnopqrstuvwxyz123456",
+			want:   ErrInvalidToken,
+		},
+		{
+			name:   "wrong algorithm",
+			claims: valid,
+			method: jwt.SigningMethodHS384,
+			key:    testSigningKey,
+			want:   ErrInvalidToken,
+		},
 	}
 
 	for _, tt := range tests {
@@ -78,7 +134,14 @@ func TestVerifyToken(t *testing.T) {
 			if !errors.Is(err, tt.want) {
 				t.Fatalf("VerifyToken() error = %v, want %v", err, tt.want)
 			}
-			if tt.want == nil && (claims.Subject != "user-id" || !claims.HasPermission("messages:read") || claims.HasPermission("messages:write")) {
+			if tt.want == nil &&
+				(claims.Subject != "user-id" ||
+					!claims.HasPermission(
+						"messages:read",
+					) ||
+					claims.HasPermission(
+						"messages:write",
+					)) {
 				t.Fatalf("unexpected claims: %+v", claims)
 			}
 		})

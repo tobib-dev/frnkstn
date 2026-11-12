@@ -25,30 +25,53 @@ type signInTestSessionServer struct {
 	subscribed        bool
 }
 
-func (*signInTestSessionServer) GetUserByGHID(context.Context, *usersV1.GetUserByGHIDRequest) (*usersV1.GetUserByGHIDResponse, error) {
+func (*signInTestSessionServer) GetUserByGHID(
+	context.Context,
+	*usersV1.GetUserByGHIDRequest,
+) (*usersV1.GetUserByGHIDResponse, error) {
 	return &usersV1.GetUserByGHIDResponse{UserId: "test-user", Username: "alice"}, nil
 }
 
-func (*signInTestSessionServer) GetSession(context.Context, *sessionsV1.GetSessionRequest) (*sessionsV1.GetSessionResponse, error) {
+func (*signInTestSessionServer) GetSession(
+	context.Context,
+	*sessionsV1.GetSessionRequest,
+) (*sessionsV1.GetSessionResponse, error) {
 	return &sessionsV1.GetSessionResponse{SessionId: "test-session", UserId: "test-user"}, nil
 }
 
-func (*signInTestSessionServer) CreateSession(context.Context, *sessionsV1.CreateSessionRequest) (*sessionsV1.CreateSessionResponse, error) {
-	return &sessionsV1.CreateSessionResponse{SessionId: "test-session", UserId: "test-user", InternalAccessToken: "access", InternalRefreshToken: "refresh"}, nil
+func (*signInTestSessionServer) CreateSession(
+	context.Context,
+	*sessionsV1.CreateSessionRequest,
+) (*sessionsV1.CreateSessionResponse, error) {
+	return &sessionsV1.CreateSessionResponse{
+		SessionId:            "test-session",
+		UserId:               "test-user",
+		InternalAccessToken:  "access",
+		InternalRefreshToken: "refresh",
+	}, nil
 }
 
-func (s *signInTestSessionServer) GetMessagesByUser(_ context.Context, req *dmsv1.GetMessagesByUserRequest) (*dmsv1.GetMessagesByUserResponse, error) {
+func (s *signInTestSessionServer) GetMessagesByUser(
+	_ context.Context,
+	req *dmsv1.GetMessagesByUserRequest,
+) (*dmsv1.GetMessagesByUserResponse, error) {
 	s.requestedMessages = true
 	return &dmsv1.GetMessagesByUserResponse{Items: []*dmsv1.DirectMessageMetadata{{DmId: "friendship"}}}, nil
 }
 
-func (*signInTestSessionServer) GetFriends(context.Context, *friendsv1.GetFriendsRequest) (*friendsv1.GetFriendsResponse, error) {
+func (*signInTestSessionServer) GetFriends(
+	context.Context,
+	*friendsv1.GetFriendsRequest,
+) (*friendsv1.GetFriendsResponse, error) {
 	return &friendsv1.GetFriendsResponse{Items: []*friendsv1.GetFriendsItem{{
 		FriendshipId: "friendship", FriendUsername: "bob", Status: "accepted",
 	}}}, nil
 }
 
-func (s *signInTestSessionServer) Subscribe(req *notificationsv1.SubscribeRequest, _ grpc.ServerStreamingServer[notificationsv1.SubscribeResponse]) error {
+func (s *signInTestSessionServer) Subscribe(
+	req *notificationsv1.SubscribeRequest,
+	_ grpc.ServerStreamingServer[notificationsv1.SubscribeResponse],
+) error {
 	s.subscribed = true
 	return nil
 }
@@ -93,11 +116,22 @@ func TestSuccessfulSignInOpensHome(t *testing.T) {
 	updated, _ = updated.Update(batch[2]())
 	updated, _ = updated.Update(batch[3]())
 	home := updated.(mainModel)
-	if home.state != homeView || home.signIn.token.AccessToken != "test-token" || home.signIn.session.sessionID != "test-session" {
+	if home.state != homeView ||
+		home.signIn.token.AccessToken != "test-token" ||
+		home.signIn.session.sessionID != "test-session" {
 		t.Fatal("successful sign-in did not open home with the token retained")
 	}
 	view := home.View().Content
-	for _, label := range []string{"Sign in successful", "Messages", "Servers", "Add friend", "Notifications", "Profile", "Sign out", "Exit"} {
+	for _, label := range []string{
+		"Sign in successful",
+		"Messages",
+		"Servers",
+		"Add friend",
+		"Notifications",
+		"Profile",
+		"Sign out",
+		"Exit",
+	} {
 		if !strings.Contains(view, label) {
 			t.Errorf("home view is missing %q", label)
 		}

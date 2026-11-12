@@ -22,14 +22,32 @@ type addFriendTestServer struct {
 	fail    bool
 }
 
-func (s *addFriendTestServer) GetFriends(_ context.Context, _ *friendsv1.GetFriendsRequest) (*friendsv1.GetFriendsResponse, error) {
+func (s *addFriendTestServer) GetFriends(
+	_ context.Context,
+	_ *friendsv1.GetFriendsRequest,
+) (*friendsv1.GetFriendsResponse, error) {
 	return &friendsv1.GetFriendsResponse{Items: []*friendsv1.GetFriendsItem{
-		{UserId: "user", FriendshipId: "pending-friendship", FriendId: "pending-friend", FriendUsername: "bob", Status: "pending"},
-		{UserId: "user", FriendshipId: "accepted-friendship", FriendId: "accepted-friend", FriendUsername: "carol", Status: "accepted"},
+		{
+			UserId:         "user",
+			FriendshipId:   "pending-friendship",
+			FriendId:       "pending-friend",
+			FriendUsername: "bob",
+			Status:         "pending",
+		},
+		{
+			UserId:         "user",
+			FriendshipId:   "accepted-friendship",
+			FriendId:       "accepted-friend",
+			FriendUsername: "carol",
+			Status:         "accepted",
+		},
 	}}, nil
 }
 
-func (s *addFriendTestServer) GetUserByUsername(_ context.Context, req *usersv1.GetUserByUsernameRequest) (*usersv1.GetUserByUsernameResponse, error) {
+func (s *addFriendTestServer) GetUserByUsername(
+	_ context.Context,
+	req *usersv1.GetUserByUsernameRequest,
+) (*usersv1.GetUserByUsernameResponse, error) {
 	if s.fail {
 		return nil, status.Error(codes.NotFound, "user not found")
 	}
@@ -39,22 +57,38 @@ func (s *addFriendTestServer) GetUserByUsername(_ context.Context, req *usersv1.
 	return &usersv1.GetUserByUsernameResponse{UserId: "friend"}, nil
 }
 
-func (s *addFriendTestServer) AddFriend(_ context.Context, req *friendsv1.AddFriendRequest) (*friendsv1.AddFriendResponse, error) {
+func (s *addFriendTestServer) AddFriend(
+	_ context.Context,
+	req *friendsv1.AddFriendRequest,
+) (*friendsv1.AddFriendResponse, error) {
 	s.request = req
-	return &friendsv1.AddFriendResponse{FriendshipId: "friendship", FriendId: req.FriendId, Status: "pending"}, nil
+	return &friendsv1.AddFriendResponse{
+		FriendshipId: "friendship",
+		FriendId:     req.FriendId,
+		Status:       "pending",
+	}, nil
 }
 
-func (s *addFriendTestServer) RemoveFriend(_ context.Context, req *friendsv1.RemoveFriendRequest) (*friendsv1.RemoveFriendResponse, error) {
+func (s *addFriendTestServer) RemoveFriend(
+	_ context.Context,
+	req *friendsv1.RemoveFriendRequest,
+) (*friendsv1.RemoveFriendResponse, error) {
 	s.action = "cancel:" + req.FriendshipId
 	return &friendsv1.RemoveFriendResponse{Status: "removed"}, nil
 }
 
-func (s *addFriendTestServer) AcceptFriend(_ context.Context, req *friendsv1.AcceptFriendRequest) (*friendsv1.AcceptFriendResponse, error) {
+func (s *addFriendTestServer) AcceptFriend(
+	_ context.Context,
+	req *friendsv1.AcceptFriendRequest,
+) (*friendsv1.AcceptFriendResponse, error) {
 	s.action = "accept:" + req.FriendshipId
 	return &friendsv1.AcceptFriendResponse{Status: "accepted"}, nil
 }
 
-func (s *addFriendTestServer) RejectFriend(_ context.Context, req *friendsv1.RejectFriendRequest) (*friendsv1.RejectFriendResponse, error) {
+func (s *addFriendTestServer) RejectFriend(
+	_ context.Context,
+	req *friendsv1.RejectFriendRequest,
+) (*friendsv1.RejectFriendResponse, error) {
 	s.action = "decline:" + req.FriendshipId
 	return &friendsv1.RejectFriendResponse{Status: "rejected"}, nil
 }
@@ -83,7 +117,12 @@ func TestHomeAddFriend(t *testing.T) {
 			m.grpcPort = port
 			m.list.Select(2)
 			m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-			if m.state != homeAddingFriend || !m.addFriend.input.Focused() || !strings.Contains(m.View().Content, "Add friend") {
+			if m.state != homeAddingFriend ||
+				!m.addFriend.input.Focused() ||
+				!strings.Contains(
+					m.View().Content,
+					"Add friend",
+				) {
 				t.Fatal("add friend form did not open")
 			}
 			m.addFriend.input.SetValue(" bob ")
@@ -93,7 +132,12 @@ func TestHomeAddFriend(t *testing.T) {
 			}
 			m, _ = m.Update(cmd())
 			if fail {
-				if m.state != homeAddingFriend || m.addFriend.adding || !strings.Contains(m.View().Content, "No user found") {
+				if m.state != homeAddingFriend ||
+					m.addFriend.adding ||
+					!strings.Contains(
+						m.View().Content,
+						"No user found",
+					) {
 					t.Fatal("missing friend did not keep form open with an error")
 				}
 				return
@@ -124,7 +168,15 @@ func TestProfileDisplaysUnrespondedRequests(t *testing.T) {
 	msg := fetchPendingFriendRequests("user", port)()
 	model, _ = model.Update(msg)
 	view := model.View()
-	if model.loadingRequests || !strings.Contains(view, "Unresponded requests") || !strings.Contains(view, "bob") {
+	if model.loadingRequests ||
+		!strings.Contains(
+			view,
+			"Unresponded requests",
+		) ||
+		!strings.Contains(
+			view,
+			"bob",
+		) {
 		t.Fatalf("pending request was not displayed: %q", view)
 	}
 	if strings.Contains(view, "carol") {
@@ -149,9 +201,36 @@ func TestSelectAndResolveUnrespondedRequest(t *testing.T) {
 		actionCursor                int
 		wantOptions                 []string
 	}{
-		{name: "requester cancels", requester: "user", wantAction: "cancel:friendship", wantOptions: []string{"Cancel", "Home"}},
-		{name: "recipient accepts", requester: "other", wantAction: "accept:friendship", wantOptions: []string{"Accept", "Decline", "Home"}},
-		{name: "recipient declines", requester: "other", actionCursor: 1, wantAction: "decline:friendship", wantOptions: []string{"Accept", "Decline", "Home"}},
+		{
+			name:       "requester cancels",
+			requester:  "user",
+			wantAction: "cancel:friendship",
+			wantOptions: []string{
+				"Cancel",
+				"Home",
+			},
+		},
+		{
+			name:       "recipient accepts",
+			requester:  "other",
+			wantAction: "accept:friendship",
+			wantOptions: []string{
+				"Accept",
+				"Decline",
+				"Home",
+			},
+		},
+		{
+			name:         "recipient declines",
+			requester:    "other",
+			actionCursor: 1,
+			wantAction:   "decline:friendship",
+			wantOptions: []string{
+				"Accept",
+				"Decline",
+				"Home",
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -165,7 +244,15 @@ func TestSelectAndResolveUnrespondedRequest(t *testing.T) {
 			if test.requester == "user" {
 				friendID = "other"
 			}
-			m.profile.pendingRequests = []*friendsv1.GetFriendsItem{{UserId: test.requester, FriendshipId: "friendship", FriendId: friendID, FriendUsername: "bob", Status: "pending"}}
+			m.profile.pendingRequests = []*friendsv1.GetFriendsItem{
+				{
+					UserId:         test.requester,
+					FriendshipId:   "friendship",
+					FriendId:       friendID,
+					FriendUsername: "bob",
+					Status:         "pending",
+				},
+			}
 
 			m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 			m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})

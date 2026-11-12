@@ -81,7 +81,14 @@ func (s *notificationService) AddMsgN10N(
 		logger.Warn("invalid author ID", "error", err)
 		return nil, err
 	}
-	logger = logger.With("user_id", userID.String(), "message_id", messageID.String(), "author_id", authorID.String())
+	logger = logger.With(
+		"user_id",
+		userID.String(),
+		"message_id",
+		messageID.String(),
+		"author_id",
+		authorID.String(),
+	)
 	notificationID := gocql.TimeUUID()
 	if item.GetId() != "" {
 		notificationID, err = parseID(item.GetId(), "notification ID")
@@ -127,7 +134,10 @@ func messageNotificationPreview(content string) string {
 	return string(runes[:messageNotificationPreviewLength]) + "…"
 }
 
-func (s *notificationService) GetMsgN10N(ctx context.Context, req *ntfnV1.GetMsgN10NRequest) (*ntfnV1.GetMsgN10NResponse, error) {
+func (s *notificationService) GetMsgN10N(
+	ctx context.Context,
+	req *ntfnV1.GetMsgN10NRequest,
+) (*ntfnV1.GetMsgN10NResponse, error) {
 	logger := s.cfg.logger.With("location", "GetMsgN10N")
 	item := req.GetItem()
 	if item == nil {
@@ -203,7 +213,14 @@ func (s *notificationService) AddFriendN10N(
 		logger.Warn("invalid friend ID", "error", err)
 		return nil, err
 	}
-	logger = logger.With("user_id", userID.String(), "friendship_id", friendshipID.String(), "friend_id", friendID.String())
+	logger = logger.With(
+		"user_id",
+		userID.String(),
+		"friendship_id",
+		friendshipID.String(),
+		"friend_id",
+		friendID.String(),
+	)
 	notificationID := gocql.TimeUUID()
 	if item.GetId() != "" {
 		notificationID, err = parseID(item.GetId(), "notification ID")
@@ -227,7 +244,10 @@ func (s *notificationService) AddFriendN10N(
 	return &ntfnV1.AddFriendN10NResponse{}, nil
 }
 
-func (s *notificationService) GetFriendN10N(ctx context.Context, req *ntfnV1.GetFriendN10NRequest) (*ntfnV1.GetFriendN10NResponse, error) {
+func (s *notificationService) GetFriendN10N(
+	ctx context.Context,
+	req *ntfnV1.GetFriendN10NRequest,
+) (*ntfnV1.GetFriendN10NResponse, error) {
 	logger := s.cfg.logger.With("location", "GetFriendN10N")
 	item := req.GetItem()
 	if item == nil {
@@ -251,20 +271,54 @@ func (s *notificationService) GetFriendN10N(ctx context.Context, req *ntfnV1.Get
 	return &ntfnV1.GetFriendN10NResponse{Item: friendNotificationItem(notifications[0])}, nil
 }
 
-func (s *notificationService) publishMessageNotification(ctx context.Context, item *ntfnV1.MsgN10NItem, logger *slog.Logger) {
+func (s *notificationService) publishMessageNotification(
+	ctx context.Context,
+	item *ntfnV1.MsgN10NItem,
+	logger *slog.Logger,
+) {
 	item.Content = messageNotificationPreview(item.GetContent())
-	s.publishNotification(ctx, item.GetRecipientId(), &ntfnV1.SubscribeResponse{Item: &ntfnV1.SubscribeResponse_Message{Message: item}}, logger, func() {
-		s.storeMessageNotification(ctx, item, logger)
-	})
+	s.publishNotification(
+		ctx,
+		item.GetRecipientId(),
+		&ntfnV1.SubscribeResponse{
+			Item: &ntfnV1.SubscribeResponse_Message{
+				Message: item,
+			},
+		},
+		logger,
+		func() {
+			s.storeMessageNotification(ctx, item, logger)
+		},
+	)
 }
 
-func (s *notificationService) publishFriendNotification(ctx context.Context, item *ntfnV1.FriendN10NItem, logger *slog.Logger) {
-	s.publishNotification(ctx, item.GetRecipientId(), &ntfnV1.SubscribeResponse{Item: &ntfnV1.SubscribeResponse_Friend{Friend: item}}, logger, func() {
-		s.storeFriendNotification(ctx, item, logger)
-	})
+func (s *notificationService) publishFriendNotification(
+	ctx context.Context,
+	item *ntfnV1.FriendN10NItem,
+	logger *slog.Logger,
+) {
+	s.publishNotification(
+		ctx,
+		item.GetRecipientId(),
+		&ntfnV1.SubscribeResponse{
+			Item: &ntfnV1.SubscribeResponse_Friend{
+				Friend: item,
+			},
+		},
+		logger,
+		func() {
+			s.storeFriendNotification(ctx, item, logger)
+		},
+	)
 }
 
-func (s *notificationService) publishNotification(ctx context.Context, userID string, item *ntfnV1.SubscribeResponse, logger *slog.Logger, store func()) {
+func (s *notificationService) publishNotification(
+	ctx context.Context,
+	userID string,
+	item *ntfnV1.SubscribeResponse,
+	logger *slog.Logger,
+	store func(),
+) {
 	body, err := proto.Marshal(item)
 	if err != nil {
 		logger.Error("failed to encode notification", "error", err)
@@ -289,13 +343,21 @@ func (s *notificationService) publishNotification(ctx context.Context, userID st
 	logger.Info("notification published")
 }
 
-func (s *notificationService) storeMessageNotification(ctx context.Context, item *ntfnV1.MsgN10NItem, logger *slog.Logger) {
+func (s *notificationService) storeMessageNotification(
+	ctx context.Context,
+	item *ntfnV1.MsgN10NItem,
+	logger *slog.Logger,
+) {
 	if _, err := s.AddMsgN10N(ctx, &ntfnV1.AddMsgN10NRequest{Item: item}); err != nil {
 		logger.Error("failed to store message notification", "error", err)
 	}
 }
 
-func (s *notificationService) storeFriendNotification(ctx context.Context, item *ntfnV1.FriendN10NItem, logger *slog.Logger) {
+func (s *notificationService) storeFriendNotification(
+	ctx context.Context,
+	item *ntfnV1.FriendN10NItem,
+	logger *slog.Logger,
+) {
 	if _, err := s.AddFriendN10N(ctx, &ntfnV1.AddFriendN10NRequest{Item: item}); err != nil {
 		logger.Error("failed to store friend notification", "error", err)
 	}
@@ -309,7 +371,13 @@ func (s *notificationService) StartNotificationConsumer(ctx context.Context) err
 	if s.cfg.brokerURI == "" {
 		return nil
 	}
-	consumer, closeConsumer, err := messaging.DeclareAndBindConsumer(ctx, notificationExchange, notificationTopic+"#", s.cfg.brokerURI)
+	consumer, closeConsumer, err := messaging.DeclareAndBindConsumer(
+		ctx,
+		notificationExchange,
+		notificationTopic+
+			"#",
+		s.cfg.brokerURI,
+	)
 	if err != nil {
 		return err
 	}
@@ -365,7 +433,10 @@ func (s *notificationService) StartNotificationConsumer(ctx context.Context) err
 	return nil
 }
 
-func (s *notificationService) Subscribe(req *ntfnV1.SubscribeRequest, stream grpc.ServerStreamingServer[ntfnV1.SubscribeResponse]) error {
+func (s *notificationService) Subscribe(
+	req *ntfnV1.SubscribeRequest,
+	stream grpc.ServerStreamingServer[ntfnV1.SubscribeResponse],
+) error {
 	userID, err := authenticatedUserID(stream.Context(), s.cfg, "")
 	if err != nil {
 		return err
@@ -393,7 +464,17 @@ func (s *notificationService) Subscribe(req *ntfnV1.SubscribeRequest, stream grp
 			return
 		}
 		for _, notification := range messages {
-			if !send(result{item: &ntfnV1.SubscribeResponse{Item: &ntfnV1.SubscribeResponse_Message{Message: messageNotificationItem(notification)}}}) {
+			if !send(
+				result{
+					item: &ntfnV1.SubscribeResponse{
+						Item: &ntfnV1.SubscribeResponse_Message{
+							Message: messageNotificationItem(
+								notification,
+							),
+						},
+					},
+				},
+			) {
 				return
 			}
 		}
@@ -406,7 +487,17 @@ func (s *notificationService) Subscribe(req *ntfnV1.SubscribeRequest, stream grp
 			return
 		}
 		for _, notification := range friends {
-			if !send(result{item: &ntfnV1.SubscribeResponse{Item: &ntfnV1.SubscribeResponse_Friend{Friend: friendNotificationItem(notification)}}}) {
+			if !send(
+				result{
+					item: &ntfnV1.SubscribeResponse{
+						Item: &ntfnV1.SubscribeResponse_Friend{
+							Friend: friendNotificationItem(
+								notification,
+							),
+						},
+					},
+				},
+			) {
 				return
 			}
 		}

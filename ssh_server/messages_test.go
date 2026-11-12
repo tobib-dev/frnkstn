@@ -28,21 +28,42 @@ type messagesTestServer struct {
 	readMessageIDs    []string
 }
 
-func (s *messagesTestServer) GetMessagesByUser(_ context.Context, req *dmsv1.GetMessagesByUserRequest) (*dmsv1.GetMessagesByUserResponse, error) {
+func (s *messagesTestServer) GetMessagesByUser(
+	_ context.Context,
+	req *dmsv1.GetMessagesByUserRequest,
+) (*dmsv1.GetMessagesByUserResponse, error) {
 	s.requestedMessages = true
 	return &dmsv1.GetMessagesByUserResponse{Items: []*dmsv1.DirectMessageMetadata{{
 		DmId: "existing-friendship", LastMessageTime: timestamppb.New(time.Unix(1, 0)),
 	}}}, nil
 }
 
-func (s *messagesTestServer) GetFriends(_ context.Context, req *friendsv1.GetFriendsRequest) (*friendsv1.GetFriendsResponse, error) {
+func (s *messagesTestServer) GetFriends(
+	_ context.Context,
+	req *friendsv1.GetFriendsRequest,
+) (*friendsv1.GetFriendsResponse, error) {
 	return &friendsv1.GetFriendsResponse{Items: []*friendsv1.GetFriendsItem{
-		{UserId: "user", FriendshipId: "new-friendship", FriendId: "friend", FriendUsername: "bob", Status: "accepted"},
-		{UserId: "user", FriendshipId: "existing-friendship", FriendId: "existing-friend", FriendUsername: "alice", Status: "accepted"},
+		{
+			UserId:         "user",
+			FriendshipId:   "new-friendship",
+			FriendId:       "friend",
+			FriendUsername: "bob",
+			Status:         "accepted",
+		},
+		{
+			UserId:         "user",
+			FriendshipId:   "existing-friendship",
+			FriendId:       "existing-friend",
+			FriendUsername: "alice",
+			Status:         "accepted",
+		},
 	}}, nil
 }
 
-func (s *messagesTestServer) SendMessages(_ context.Context, req *dmsv1.SendMessagesRequest) (*dmsv1.SendMessagesResponse, error) {
+func (s *messagesTestServer) SendMessages(
+	_ context.Context,
+	req *dmsv1.SendMessagesRequest,
+) (*dmsv1.SendMessagesResponse, error) {
 	s.sent = req.GetItem()
 	return &dmsv1.SendMessagesResponse{Item: &dmsv1.DirectMessageItem{
 		DmId:       s.sent.GetDmId(),
@@ -53,24 +74,58 @@ func (s *messagesTestServer) SendMessages(_ context.Context, req *dmsv1.SendMess
 	}}, nil
 }
 
-func (s *messagesTestServer) GetMessages(_ context.Context, req *dmsv1.GetMessagesRequest) (*dmsv1.GetMessagesResponse, error) {
+func (s *messagesTestServer) GetMessages(
+	_ context.Context,
+	req *dmsv1.GetMessagesRequest,
+) (*dmsv1.GetMessagesResponse, error) {
 	s.requestedDM = req.GetItem().GetDmId()
 	return &dmsv1.GetMessagesResponse{Items: []*dmsv1.DirectMessageItem{
-		{DmId: s.requestedDM, MessageId: gocql.TimeUUID().String(), AuthorId: "friend", ReceiverId: "user", Content: "hello from them"},
-		{DmId: s.requestedDM, MessageId: gocql.UUIDFromTime(time.Unix(2, 0)).String(), AuthorId: "user", ReceiverId: "friend", Content: "hello from me"},
+		{
+			DmId:       s.requestedDM,
+			MessageId:  gocql.TimeUUID().String(),
+			AuthorId:   "friend",
+			ReceiverId: "user",
+			Content:    "hello from them",
+		},
+		{
+			DmId: s.requestedDM,
+			MessageId: gocql.UUIDFromTime(
+				time.Unix(
+					2,
+					0,
+				),
+			).String(),
+			AuthorId:   "user",
+			ReceiverId: "friend",
+			Content:    "hello from me",
+		},
 	}}, nil
 }
 
-func (s *messagesTestServer) MarkMessagesRead(_ context.Context, req *dmsv1.MarkMessagesReadRequest) (*dmsv1.MarkMessagesReadResponse, error) {
+func (s *messagesTestServer) MarkMessagesRead(
+	_ context.Context,
+	req *dmsv1.MarkMessagesReadRequest,
+) (*dmsv1.MarkMessagesReadResponse, error) {
 	s.readMessageIDs = append(s.readMessageIDs, req.GetMessageIds()...)
 	return &dmsv1.MarkMessagesReadResponse{}, nil
 }
 
-func (s *messagesTestServer) SubscribeMessages(req *dmsv1.SubscribeMessagesRequest, stream grpc.ServerStreamingServer[dmsv1.DirectMessageItem]) error {
+func (s *messagesTestServer) SubscribeMessages(
+	req *dmsv1.SubscribeMessagesRequest,
+	stream grpc.ServerStreamingServer[dmsv1.DirectMessageItem],
+) error {
 	s.subscribedDM = req.GetDmId()
 	s.subscribedAt = req.GetLastMsgTime().AsTime()
 	s.incomingID = gocql.UUIDFromTime(s.subscribedAt.Add(time.Second)).String()
-	return stream.Send(&dmsv1.DirectMessageItem{DmId: req.GetDmId(), MessageId: s.incomingID, AuthorId: "friend", ReceiverId: "user", Content: "live message"})
+	return stream.Send(
+		&dmsv1.DirectMessageItem{
+			DmId:       req.GetDmId(),
+			MessageId:  s.incomingID,
+			AuthorId:   "friend",
+			ReceiverId: "user",
+			Content:    "live message",
+		},
+	)
 }
 
 func TestMessagesOptionLoadsMetadataAndStartsMessage(t *testing.T) {
@@ -96,7 +151,15 @@ func TestMessagesOptionLoadsMetadataAndStartsMessage(t *testing.T) {
 	}
 	home, _ = home.Update(cmd())
 	view := home.View().Content
-	if !service.requestedMessages || !strings.Contains(view, "New Message") || !strings.Contains(view, "existing-friendship") {
+	if !service.requestedMessages ||
+		!strings.Contains(
+			view,
+			"New Message",
+		) ||
+		!strings.Contains(
+			view,
+			"existing-friendship",
+		) {
 		t.Fatalf("messages were not loaded: requested=%v view=%q", service.requestedMessages, view)
 	}
 
@@ -115,7 +178,11 @@ func TestMessagesOptionLoadsMetadataAndStartsMessage(t *testing.T) {
 		t.Fatal("message was not submitted")
 	}
 	home, cmd = home.Update(cmd())
-	if service.sent == nil || service.sent.GetDmId() != "new-friendship" || service.sent.GetAuthorId() != "user" || service.sent.GetReceiverId() != "friend" || service.sent.GetContent() != "hello" {
+	if service.sent == nil ||
+		service.sent.GetDmId() != "new-friendship" ||
+		service.sent.GetAuthorId() != "user" ||
+		service.sent.GetReceiverId() != "friend" ||
+		service.sent.GetContent() != "hello" {
 		t.Fatalf("unexpected sent message: %+v", service.sent)
 	}
 	home, _ = home.Update(cmd())
@@ -124,13 +191,19 @@ func TestMessagesOptionLoadsMetadataAndStartsMessage(t *testing.T) {
 	home, _ = home.Update(cmd())
 	home.messages.friends.Select(1)
 	home, _ = home.Update(notificationsPolledMsg{items: []notificationItem{{
-		kind: messageNotification, message: &notificationsv1.MsgN10NItem{Id: "notification", AuthorId: "existing-friend"},
+		kind: messageNotification,
+		message: &notificationsv1.MsgN10NItem{
+			Id:       "notification",
+			AuthorId: "existing-friend",
+		},
 	}}})
 	if got := home.messageCounter.Load(); got != 1 {
 		t.Fatalf("incoming conversation was not counted: %d", got)
 	}
 	home, cmd = home.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if cmd == nil || home.messages.state != messagesViewingConversation || home.messages.selectedDM.GetDmId() != "existing-friendship" {
+	if cmd == nil ||
+		home.messages.state != messagesViewingConversation ||
+		home.messages.selectedDM.GetDmId() != "existing-friendship" {
 		t.Fatal("selecting an existing friend did not open the previous conversation")
 	}
 	if got := home.messageCounter.Load(); got != 0 {
@@ -186,10 +259,19 @@ func TestOpeningConversationDisplaysHistoryAndIncomingMessage(t *testing.T) {
 	}
 	incomingTime, _ := messageTime(&dmsv1.DirectMessageItem{MessageId: service.incomingID})
 	if !model.selectedDM.GetLastMessageTime().AsTime().Equal(incomingTime) {
-		t.Fatalf("cursor was not advanced to incoming message: got %v want %v", model.selectedDM.GetLastMessageTime().AsTime(), incomingTime)
+		t.Fatalf(
+			"cursor was not advanced to incoming message: got %v want %v",
+			model.selectedDM.GetLastMessageTime().AsTime(),
+			incomingTime,
+		)
 	}
 	view := model.View()
-	for _, text := range []string{"Conversation with bob", "You: hello from me •", "bob: hello from them •", "bob: live message •"} {
+	for _, text := range []string{
+		"Conversation with bob",
+		"You: hello from me •",
+		"bob: hello from them •",
+		"bob: live message •",
+	} {
 		if !strings.Contains(view, text) {
 			t.Fatalf("conversation view missing %q: %q", text, view)
 		}
@@ -208,7 +290,10 @@ func TestOpeningConversationDisplaysHistoryAndIncomingMessage(t *testing.T) {
 		t.Fatal("conversation reply was not submitted")
 	}
 	model, _ = model.Update(cmd())
-	if model.sending || model.state != messagesViewingConversation || model.input.Value() != "" || service.sent.GetDmId() != "friendship" {
+	if model.sending ||
+		model.state != messagesViewingConversation ||
+		model.input.Value() != "" ||
+		service.sent.GetDmId() != "friendship" {
 		t.Fatal("conversation reply did not complete in the open thread")
 	}
 	if !strings.Contains(model.View(), "You: reply from conversation") {

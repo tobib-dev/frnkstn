@@ -76,8 +76,22 @@ func (s *testFriendStore) GetFriends(_ context.Context, userID gocql.UUID) ([]db
 func TestGetFriendsIdentifiesRequester(t *testing.T) {
 	requester, recipient, friendshipID := gocql.TimeUUID(), gocql.TimeUUID(), gocql.TimeUUID()
 	store := &testFriendStore{
-		friend: db.Friend{ID: friendshipID, UserID: requester, FriendID: recipient, FriendName: "recipient", Status: "pending"},
-		listed: []db.Friend{{ID: friendshipID, UserID: recipient, FriendID: requester, FriendName: "requester", Status: "pending"}},
+		friend: db.Friend{
+			ID:         friendshipID,
+			UserID:     requester,
+			FriendID:   recipient,
+			FriendName: "recipient",
+			Status:     "pending",
+		},
+		listed: []db.Friend{
+			{
+				ID:         friendshipID,
+				UserID:     recipient,
+				FriendID:   requester,
+				FriendName: "requester",
+				Status:     "pending",
+			},
+		},
 	}
 	service := &FriendService{cfg: &Config{logger: slog.Default(), signingKey: apiTestSigningKey}, store: store}
 
@@ -86,30 +100,67 @@ func TestGetFriendsIdentifiesRequester(t *testing.T) {
 		t.Fatal(err)
 	}
 	item := response.Items[0]
-	if item.UserId != requester.String() || item.FriendId != recipient.String() || item.FriendUsername != "requester" {
+	if item.UserId != requester.String() ||
+		item.FriendId != recipient.String() ||
+		item.FriendUsername != "requester" {
 		t.Fatalf("unexpected recipient view: %+v", item)
 	}
 }
 
 func TestGetFriendUsesFriendshipID(t *testing.T) {
 	userID, friendID := gocql.TimeUUID(), gocql.TimeUUID()
-	store := &testFriendStore{friend: db.Friend{ID: gocql.TimeUUID(), UserID: userID, FriendID: friendID, FriendName: "bob", Status: "accepted"}}
+	store := &testFriendStore{
+		friend: db.Friend{
+			ID:         gocql.TimeUUID(),
+			UserID:     userID,
+			FriendID:   friendID,
+			FriendName: "bob",
+			Status:     "accepted",
+		},
+	}
 	service := &FriendService{cfg: &Config{logger: slog.Default(), signingKey: apiTestSigningKey}, store: store}
 
-	response, err := service.GetFriend(authenticatedTestContext(userID), &friendsv1.GetFriendRequest{FriendshipId: store.friend.ID.String()})
+	response, err := service.GetFriend(
+		authenticatedTestContext(
+			userID,
+		),
+		&friendsv1.GetFriendRequest{
+			FriendshipId: store.friend.ID.String(),
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Item.GetFriendshipId() != store.friend.ID.String() || store.getFriendCalls != 1 || store.getFriendsCalls != 0 {
-		t.Fatalf("friend lookup did not use the friendship ID: response=%+v direct=%d lists=%d", response, store.getFriendCalls, store.getFriendsCalls)
+	if response.Item.GetFriendshipId() != store.friend.ID.String() ||
+		store.getFriendCalls != 1 ||
+		store.getFriendsCalls != 0 {
+		t.Fatalf(
+			"friend lookup did not use the friendship ID: response=%+v direct=%d lists=%d",
+			response,
+			store.getFriendCalls,
+			store.getFriendsCalls,
+		)
 	}
 }
 
 func TestGetFriendRejectsUnrelatedUser(t *testing.T) {
-	store := &testFriendStore{friend: db.Friend{ID: gocql.TimeUUID(), UserID: gocql.TimeUUID(), FriendID: gocql.TimeUUID()}}
+	store := &testFriendStore{
+		friend: db.Friend{
+			ID:       gocql.TimeUUID(),
+			UserID:   gocql.TimeUUID(),
+			FriendID: gocql.TimeUUID(),
+		},
+	}
 	service := &FriendService{cfg: &Config{logger: slog.Default(), signingKey: apiTestSigningKey}, store: store}
 
-	_, err := service.GetFriend(authenticatedTestContext(gocql.TimeUUID()), &friendsv1.GetFriendRequest{FriendshipId: store.friend.ID.String()})
+	_, err := service.GetFriend(
+		authenticatedTestContext(
+			gocql.TimeUUID(),
+		),
+		&friendsv1.GetFriendRequest{
+			FriendshipId: store.friend.ID.String(),
+		},
+	)
 	if status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("expected permission denied, got %v", err)
 	}
@@ -120,18 +171,30 @@ func TestRemoveFriendUsesFriendshipID(t *testing.T) {
 	store := &testFriendStore{friend: friendship}
 	service := &FriendService{cfg: &Config{logger: slog.Default(), signingKey: apiTestSigningKey}, store: store}
 
-	response, err := service.RemoveFriend(authenticatedTestContext(friendship.UserID), &friendsv1.RemoveFriendRequest{
-		FriendshipId: friendship.ID.String(),
-		FriendId:     friendship.FriendID.String(),
-	})
+	response, err := service.RemoveFriend(
+		authenticatedTestContext(
+			friendship.UserID,
+		),
+		&friendsv1.RemoveFriendRequest{
+			FriendshipId: friendship.ID.String(),
+			FriendId:     friendship.FriendID.String(),
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if response.Status != "removed" {
 		t.Fatalf("unexpected status: %q", response.Status)
 	}
-	if store.removedID != friendship.ID || store.removedForUser != friendship.UserID || store.removedForFriend != friendship.FriendID {
-		t.Fatalf("unexpected remove arguments: friendship=%s user=%s friend=%s", store.removedID, store.removedForUser, store.removedForFriend)
+	if store.removedID != friendship.ID ||
+		store.removedForUser != friendship.UserID ||
+		store.removedForFriend != friendship.FriendID {
+		t.Fatalf(
+			"unexpected remove arguments: friendship=%s user=%s friend=%s",
+			store.removedID,
+			store.removedForUser,
+			store.removedForFriend,
+		)
 	}
 	if store.getFriendsCalls != 0 {
 		t.Fatalf("RemoveFriend listed friends %d times", store.getFriendsCalls)
@@ -143,10 +206,15 @@ func TestRejectFriendUsesFriendshipID(t *testing.T) {
 	store := &testFriendStore{friend: friendship}
 	service := &FriendService{cfg: &Config{logger: slog.Default(), signingKey: apiTestSigningKey}, store: store}
 
-	response, err := service.RejectFriend(authenticatedTestContext(friendship.FriendID), &friendsv1.RejectFriendRequest{
-		FriendshipId: friendship.ID.String(),
-		FriendId:     friendship.UserID.String(),
-	})
+	response, err := service.RejectFriend(
+		authenticatedTestContext(
+			friendship.FriendID,
+		),
+		&friendsv1.RejectFriendRequest{
+			FriendshipId: friendship.ID.String(),
+			FriendId:     friendship.UserID.String(),
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,16 +238,34 @@ func TestAddFriendGeneratesTimeUUIDOnServer(t *testing.T) {
 	store := &testFriendStore{}
 	notifications := &testNotificationStore{friendAdded: make(chan struct{}, 1)}
 	cfg := &Config{logger: slog.Default(), signingKey: apiTestSigningKey}
-	service := &FriendService{cfg: cfg, store: store, users: users, n10n: &notificationService{cfg: cfg, store: notifications}}
+	service := &FriendService{
+		cfg:   cfg,
+		store: store,
+		users: users,
+		n10n: &notificationService{
+			cfg:   cfg,
+			store: notifications,
+		},
+	}
 
-	response, err := service.AddFriend(authenticatedTestContext(userID), &friendsv1.AddFriendRequest{FriendId: friendID.String()})
+	response, err := service.AddFriend(
+		authenticatedTestContext(
+			userID,
+		),
+		&friendsv1.AddFriendRequest{
+			FriendId: friendID.String(),
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if store.added != 1 || store.friend.ID == (gocql.UUID{}) || store.friend.ID.Version() != 1 {
 		t.Fatalf("friendship ID was not generated by the service: %+v", store.friend)
 	}
-	if response.FriendshipId != store.friend.ID.String() || response.Status != "pending" || store.friend.FriendName != "bob" || store.addedUserName != "alice" {
+	if response.FriendshipId != store.friend.ID.String() ||
+		response.Status != "pending" ||
+		store.friend.FriendName != "bob" ||
+		store.addedUserName != "alice" {
 		t.Fatalf("unexpected response or stored friend: response=%+v friend=%+v", response, store.friend)
 	}
 	select {
@@ -187,12 +273,23 @@ func TestAddFriendGeneratesTimeUUIDOnServer(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("friend notification was not added asynchronously")
 	}
-	if notification := notifications.friend; notification.UserID != friendID || notification.FriendshipID != store.friend.ID || notification.FriendID != userID || notification.FriendName != "alice" || notification.Status != "pending" {
+	if notification := notifications.friend; notification.UserID != friendID ||
+		notification.FriendshipID != store.friend.ID ||
+		notification.FriendID != userID ||
+		notification.FriendName != "alice" ||
+		notification.Status != "pending" {
 		t.Fatalf("unexpected friend notification: %+v", notification)
 	}
 
 	notifications.friendErr = errors.New("notification unavailable")
-	if _, err := service.AddFriend(authenticatedTestContext(userID), &friendsv1.AddFriendRequest{FriendId: friendID.String()}); err != nil {
+	if _, err := service.AddFriend(
+		authenticatedTestContext(
+			userID,
+		),
+		&friendsv1.AddFriendRequest{
+			FriendId: friendID.String(),
+		},
+	); err != nil {
 		t.Fatalf("notification failure changed successful friend request: %v", err)
 	}
 	select {
@@ -205,16 +302,51 @@ func TestAddFriendGeneratesTimeUUIDOnServer(t *testing.T) {
 func TestAddFriendDoesNotWaitForNotificationPublish(t *testing.T) {
 	userID, friendID := gocql.TimeUUID(), gocql.TimeUUID()
 	release := make(chan struct{})
-	broker := &testNotificationBroker{publishStarted: make(chan struct{}, 1), publishRelease: release, publishFinished: make(chan struct{}, 1)}
+	broker := &testNotificationBroker{
+		publishStarted: make(
+			chan struct{},
+			1,
+		),
+		publishRelease: release,
+		publishFinished: make(
+			chan struct{},
+			1,
+		),
+	}
 	service := &FriendService{
 		cfg:   &Config{logger: slog.Default(), signingKey: apiTestSigningKey},
 		store: &testFriendStore{},
-		users: &testUserStore{users: map[gocql.UUID]db.User{userID: {ID: userID, Username: "alice"}, friendID: {ID: friendID, Username: "bob"}}},
-		n10n:  &notificationService{cfg: &Config{logger: slog.Default(), signingKey: apiTestSigningKey}, store: &testNotificationStore{}, broker: broker},
+		users: &testUserStore{
+			users: map[gocql.UUID]db.User{
+				userID: {
+					ID:       userID,
+					Username: "alice",
+				},
+				friendID: {
+					ID:       friendID,
+					Username: "bob",
+				},
+			},
+		},
+		n10n: &notificationService{
+			cfg: &Config{
+				logger:     slog.Default(),
+				signingKey: apiTestSigningKey,
+			},
+			store:  &testNotificationStore{},
+			broker: broker,
+		},
 	}
 	done := make(chan error, 1)
 	go func() {
-		_, err := service.AddFriend(authenticatedTestContext(userID), &friendsv1.AddFriendRequest{FriendId: friendID.String()})
+		_, err := service.AddFriend(
+			authenticatedTestContext(
+				userID,
+			),
+			&friendsv1.AddFriendRequest{
+				FriendId: friendID.String(),
+			},
+		)
 		done <- err
 	}()
 
@@ -243,7 +375,10 @@ func TestAddFriendDoesNotWaitForNotificationPublish(t *testing.T) {
 	if err := proto.Unmarshal(broker.body, envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.GetFriend() == nil || envelope.GetFriend().GetRecipientId() != friendID.String() || broker.routingKey != "notifications."+friendID.String() {
+	if envelope.GetFriend() == nil ||
+		envelope.GetFriend().GetRecipientId() != friendID.String() ||
+		broker.routingKey != "notifications."+
+			friendID.String() {
 		t.Fatalf("unexpected friend notification publish: broker=%+v item=%+v", broker, envelope.GetFriend())
 	}
 }

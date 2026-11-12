@@ -39,7 +39,10 @@ func TestInvitePublishesToRecipientAndFallsBack(t *testing.T) {
 			case <-time.After(time.Second):
 				t.Fatal("notification not published")
 			}
-			if broker.exchange != notificationExchange || broker.routingKey != notificationRoutingKey(recipient.String()) {
+			if broker.exchange != notificationExchange ||
+				broker.routingKey != notificationRoutingKey(
+					recipient.String(),
+				) {
 				t.Fatal("wrong notification route")
 			}
 			event := &ntfnV1.SubscribeResponse{}
