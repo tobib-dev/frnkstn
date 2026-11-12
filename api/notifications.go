@@ -17,7 +17,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -57,7 +56,10 @@ func NewNotificationService(cfg *Config) *notificationService {
 	return service
 }
 
-func (s *notificationService) AddMsgN10N(ctx context.Context, req *ntfnV1.AddMsgN10NRequest) (*emptypb.Empty, error) {
+func (s *notificationService) AddMsgN10N(
+	ctx context.Context,
+	req *ntfnV1.AddMsgN10NRequest,
+) (*ntfnV1.AddMsgN10NResponse, error) {
 	logger := s.cfg.logger.With("location", "AddMsgN10N")
 	item := req.GetItem()
 	if item == nil {
@@ -113,7 +115,7 @@ func (s *notificationService) AddMsgN10N(ctx context.Context, req *ntfnV1.AddMsg
 			}
 		}
 	}
-	return &emptypb.Empty{}, nil
+	return &ntfnV1.AddMsgN10NResponse{}, nil
 }
 
 func messageNotificationPreview(content string) string {
@@ -149,7 +151,10 @@ func (s *notificationService) GetMsgN10N(ctx context.Context, req *ntfnV1.GetMsg
 	return &ntfnV1.GetMsgN10NResponse{Item: messageNotificationItem(notifications[0])}, nil
 }
 
-func (s *notificationService) UpdateMsgN10N(ctx context.Context, req *ntfnV1.UpdateMsgN10NRequest) (*emptypb.Empty, error) {
+func (s *notificationService) UpdateMsgN10N(
+	ctx context.Context,
+	req *ntfnV1.UpdateMsgN10NRequest,
+) (*ntfnV1.UpdateMsgN10NResponse, error) {
 	logger := s.cfg.logger.With("location", "UpdateMsgN10N")
 	item := req.GetItem()
 	if item == nil {
@@ -170,10 +175,13 @@ func (s *notificationService) UpdateMsgN10N(ctx context.Context, req *ntfnV1.Upd
 		logger.Error("failed to update message notification", "error", err)
 		return nil, notificationUpdateError(err)
 	}
-	return &emptypb.Empty{}, nil
+	return &ntfnV1.UpdateMsgN10NResponse{}, nil
 }
 
-func (s *notificationService) AddFriendN10N(ctx context.Context, req *ntfnV1.AddFriendN10NRequest) (*emptypb.Empty, error) {
+func (s *notificationService) AddFriendN10N(
+	ctx context.Context,
+	req *ntfnV1.AddFriendN10NRequest,
+) (*ntfnV1.AddFriendN10NResponse, error) {
 	logger := s.cfg.logger.With("location", "AddFriendN10N")
 	item := req.GetItem()
 	if item == nil {
@@ -216,7 +224,7 @@ func (s *notificationService) AddFriendN10N(ctx context.Context, req *ntfnV1.Add
 		logger.Error("failed to add friend notification", "error", err)
 		return nil, status.Error(codes.Internal, "could not add friend notification")
 	}
-	return &emptypb.Empty{}, nil
+	return &ntfnV1.AddFriendN10NResponse{}, nil
 }
 
 func (s *notificationService) GetFriendN10N(ctx context.Context, req *ntfnV1.GetFriendN10NRequest) (*ntfnV1.GetFriendN10NResponse, error) {
@@ -334,6 +342,8 @@ func (s *notificationService) StartNotificationConsumer(ctx context.Context) err
 			switch {
 			case item.GetMessage() != nil:
 				_, addErr = s.AddMsgN10N(ctx, &ntfnV1.AddMsgN10NRequest{Item: item.GetMessage()})
+			case item.GetInvite() != nil:
+				addErr = s.addInviteNotification(ctx, item.GetInvite())
 			case item.GetFriend() != nil:
 				_, addErr = s.AddFriendN10N(ctx, &ntfnV1.AddFriendN10NRequest{Item: item.GetFriend()})
 			default:
@@ -403,7 +413,25 @@ func (s *notificationService) Subscribe(req *ntfnV1.SubscribeRequest, stream grp
 		send(result{done: true})
 	}()
 
-	for completed := 0; completed < 2; {
+	go func() {
+		invites, err := s.store.GetInviteNotifications(ctx, userID)
+		if err != nil {
+			s.cfg.logger.Error("failed to get invite notifications", "user_id", userID, "error", err)
+			send(result{err: status.Error(codes.Internal, "could not get invite notifications")})
+			return
+		}
+		for _, notification := range invites {
+			item := &ntfnV1.SubscribeResponse{Item: &ntfnV1.SubscribeResponse_Invite{
+				Invite: inviteNotificationItem(notification),
+			}}
+			if !send(result{item: item}) {
+				return
+			}
+		}
+		send(result{done: true})
+	}()
+
+	for completed := 0; completed < 3; {
 		var result result
 		select {
 		case result = <-results:
@@ -424,7 +452,10 @@ func (s *notificationService) Subscribe(req *ntfnV1.SubscribeRequest, stream grp
 	return nil
 }
 
-func (s *notificationService) UpdateFriendN10N(ctx context.Context, req *ntfnV1.UpdateFriendN10NRequest) (*emptypb.Empty, error) {
+func (s *notificationService) UpdateFriendN10N(
+	ctx context.Context,
+	req *ntfnV1.UpdateFriendN10NRequest,
+) (*ntfnV1.UpdateFriendN10NResponse, error) {
 	logger := s.cfg.logger.With("location", "UpdateFriendN10N")
 	item := req.GetItem()
 	if item == nil {
@@ -445,7 +476,7 @@ func (s *notificationService) UpdateFriendN10N(ctx context.Context, req *ntfnV1.
 		logger.Error("failed to update friend notification", "error", err)
 		return nil, notificationUpdateError(err)
 	}
-	return &emptypb.Empty{}, nil
+	return &ntfnV1.UpdateFriendN10NResponse{}, nil
 }
 
 func notificationIDs(userID, notificationID string) (gocql.UUID, gocql.UUID, error) {

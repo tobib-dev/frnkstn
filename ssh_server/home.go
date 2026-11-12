@@ -115,6 +115,7 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		m.setNotificationCounters(msg.items)
 		if m.state == homeViewingNotifications && !m.notifications.updating && m.notifications.selected < 0 {
 			m.notifications.items = msg.items
+			m.notifications.normalizeCursor()
 			m.notifications.loading = false
 			m.notifications.errorText = ""
 		}
@@ -131,6 +132,13 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		return m, scheduleNotificationPoll()
 	case notificationsPollTickMsg:
 		return m, pollNotifications(m.session.internalAccessToken, m.grpcPort)
+	case enterNotificationInviteMsg:
+		m.state = homeViewingServers
+		m.servers = newServersModel(m.user.userID, m.session.internalAccessToken, m.grpcPort)
+		m.servers.page = serverJoin
+		m.servers.input.Prompt = "Share code: "
+		m.servers.input.SetValue(msg.shareCode)
+		return m, m.servers.request(previewServer, nil)
 	case enterNotificationConversationMsg:
 		metadata := m.messages.metadataForAuthor(msg.authorID)
 		if metadata == nil {

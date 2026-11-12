@@ -81,6 +81,7 @@ func (s *serverService) InviteMember(
 	if err := s.members.ShareServer(ctx, invite); err != nil {
 		return nil, s.memberError("invite member", err)
 	}
+	s.notifyServerInvite(invite, server.ServerName)
 	return &serversv1.InviteMemberResponse{}, nil
 }
 

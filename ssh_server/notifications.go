@@ -16,15 +16,20 @@ type notificationKind int
 const (
 	messageNotification notificationKind = iota
 	friendNotification
+	inviteNotification
 )
 
 type notificationItem struct {
 	kind    notificationKind
 	message *notificationsv1.MsgN10NItem
 	friend  *notificationsv1.FriendN10NItem
+	invite  *notificationsv1.InviteN10NItem
 }
 
 func (n notificationItem) label() string {
+	if n.kind == inviteNotification {
+		return "Server invitation: " + n.invite.GetServerName()
+	}
 	if n.kind == messageNotification {
 		return fmt.Sprintf("Message from %s: %s", n.message.GetAuthorName(), n.message.GetContent())
 	}
@@ -32,6 +37,9 @@ func (n notificationItem) label() string {
 }
 
 func (n notificationItem) id() string {
+	if n.kind == inviteNotification {
+		return n.invite.GetId()
+	}
 	if n.kind == messageNotification {
 		return n.message.GetId()
 	}
@@ -49,6 +57,7 @@ type notificationUpdatedMsg struct {
 }
 type notificationUpdateFailedMsg struct{ err error }
 type enterNotificationConversationMsg struct{ authorID string }
+type enterNotificationInviteMsg struct{ shareCode string }
 
 type notificationAction int
 
@@ -56,6 +65,7 @@ const (
 	markNotificationSeen notificationAction = iota
 	ignoreNotification
 	enterNotificationConversation
+	openNotificationInvite
 )
 
 type notificationsModel struct {
@@ -66,6 +76,7 @@ type notificationsModel struct {
 	actionCursor                  int
 	loading                       bool
 	updating                      bool
+	invitesOnly                   bool
 	errorText                     string
 }
 
@@ -85,6 +96,7 @@ func (m notificationsModel) Update(msg tea.Msg) (notificationsModel, tea.Cmd) {
 		} else {
 			m.items[msg.index] = *msg.replacement
 		}
+		m.normalizeCursor()
 		m.selected = -1
 		m.errorText = ""
 		if msg.enterConversation {
@@ -104,16 +116,26 @@ func (m notificationsModel) Update(msg tea.Msg) (notificationsModel, tea.Cmd) {
 	}
 	if key, ok := msg.(tea.KeyPressMsg); ok {
 		switch key.String() {
+		case "i", "a":
+			m.invitesOnly = key.String() == "i"
+			m.cursor = 0
+			m.normalizeCursor()
 		case "up":
-			if m.cursor > 0 {
-				m.cursor--
+			for i := m.cursor - 1; i >= 0; i-- {
+				if m.visible(m.items[i]) {
+					m.cursor = i
+					break
+				}
 			}
 		case "down":
-			if m.cursor < len(m.items)-1 {
-				m.cursor++
+			for i := m.cursor + 1; i < len(m.items); i++ {
+				if m.visible(m.items[i]) {
+					m.cursor = i
+					break
+				}
 			}
 		case "enter":
-			if len(m.items) == 0 {
+			if len(m.items) == 0 || !m.visible(m.items[m.cursor]) {
 				return m, nil
 			}
 			m.selected, m.actionCursor, m.errorText = m.cursor, 0, ""
@@ -146,6 +168,11 @@ func (m notificationsModel) updateSelected(msg tea.Msg) (notificationsModel, tea
 			m.selected = -1
 			return m, nil
 		}
+		if action == openNotificationInvite {
+			code := m.items[m.selected].invite.GetShareCode()
+			m.selected = -1
+			return m, func() tea.Msg { return enterNotificationInviteMsg{shareCode: code} }
+		}
 		m.updating, m.errorText = true, ""
 		return m, updateNotification(m.accessToken, m.grpcPort, m.selected, m.items[m.selected], action == enterNotificationConversation)
 	}
@@ -157,6 +184,9 @@ func (m notificationsModel) actions() []notificationAction {
 	if m.items[m.selected].kind == messageNotification {
 		actions = append(actions, enterNotificationConversation)
 	}
+	if m.items[m.selected].kind == inviteNotification {
+		actions = append(actions, openNotificationInvite)
+	}
 	return actions
 }
 
@@ -166,6 +196,8 @@ func (a notificationAction) label() string {
 		return "Mark as seen"
 	case ignoreNotification:
 		return "Ignore"
+	case openNotificationInvite:
+		return "Open invitation"
 	default:
 		return "Enter conversation"
 	}
@@ -189,13 +221,19 @@ func (m notificationsModel) View() string {
 		return view + "\n\n↑/↓ to select • Enter to confirm • Esc to go back • Ctrl+C to quit"
 	}
 	view := "Notifications\n"
+	if m.invitesOnly {
+		view = "Notifications · Invites\n"
+	}
 	switch {
 	case m.loading:
 		view += "\nLoading…"
-	case len(m.items) == 0:
+	case len(m.items) == 0 || (m.invitesOnly && !m.visible(m.items[m.cursor])):
 		view += "\nNo new notifications."
 	default:
 		for i, item := range m.items {
+			if !m.visible(item) {
+				continue
+			}
 			cursor := "  "
 			if i == m.cursor {
 				cursor = "> "
@@ -208,7 +246,7 @@ func (m notificationsModel) View() string {
 	} else if m.errorText != "" {
 		view += "\n\n" + m.errorText
 	}
-	return view + "\n\n↑/↓ to select • Enter for options • Esc for home • Ctrl+C to quit"
+	return view + "\n\ni Invites • a All • ↑/↓ to select • Enter for options • Esc for home • Ctrl+C to quit"
 }
 
 const notificationPollInterval = 5 * time.Second
@@ -245,6 +283,8 @@ func pollNotifications(accessToken, grpcPort string) tea.Cmd {
 			}
 			if message := response.GetMessage(); message != nil {
 				items = append(items, notificationItem{kind: messageNotification, message: message})
+			} else if invite := response.GetInvite(); invite != nil {
+				items = append(items, notificationItem{kind: inviteNotification, invite: invite})
 			} else if friend := response.GetFriend(); friend != nil {
 				items = append(items, notificationItem{kind: friendNotification, friend: friend})
 			}
@@ -273,6 +313,13 @@ func updateNotification(accessToken, grpcPort string, index int, item notificati
 			if err != nil {
 				return notificationUpdateFailedMsg{err: err}
 			}
+		} else if item.kind == inviteNotification {
+			_, err = client.UpdateInviteN10N(ctx, &notificationsv1.UpdateInviteN10NRequest{
+				Id: item.invite.GetId(),
+			})
+			if err != nil {
+				return notificationUpdateFailedMsg{err: err}
+			}
 		} else {
 			_, err = client.UpdateFriendN10N(ctx, &notificationsv1.UpdateFriendN10NRequest{Item: &notificationsv1.FriendN10NItem{Id: item.friend.GetId()}})
 			if err != nil {
@@ -280,5 +327,22 @@ func updateNotification(accessToken, grpcPort string, index int, item notificati
 			}
 		}
 		return notificationUpdatedMsg{index: index, enterConversation: enterConversation, authorID: item.message.GetAuthorId()}
+	}
+}
+
+func (m notificationsModel) visible(item notificationItem) bool {
+	return !m.invitesOnly || item.kind == inviteNotification
+}
+
+func (m *notificationsModel) normalizeCursor() {
+	if m.cursor >= 0 && m.cursor < len(m.items) && m.visible(m.items[m.cursor]) {
+		return
+	}
+	m.cursor = 0
+	for i, item := range m.items {
+		if m.visible(item) {
+			m.cursor = i
+			return
+		}
 	}
 }

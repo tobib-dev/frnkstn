@@ -19,6 +19,12 @@ const (
 	serverCreate
 	serverEdit
 	serverDeleteConfirmation
+	serverInvite
+	serverJoin
+	serverJoinConfirmation
+	serverMembers
+	serverLeaveConfirmation
+	serverRemoveConfirmation
 )
 
 type serverOperation int
@@ -29,12 +35,19 @@ const (
 	createServer
 	editServer
 	deleteServer
+	inviteMember
+	previewServer
+	joinServer
+	listMembers
+	leaveServer
+	removeMember
 )
 
 type serverResultMsg struct {
 	operation serverOperation
 	items     []*serversv1.UserServerItem
 	item      *serversv1.ServerItem
+	members   []*serversv1.MemberItem
 	err       error
 }
 
@@ -45,6 +58,10 @@ type serversModel struct {
 	selected                      int
 	item                          *serversv1.ServerItem
 	name, bio                     textinput.Model
+	input                         textinput.Model
+	members                       []*serversv1.MemberItem
+	memberSelected                int
+	notice                        string
 	focusBio                      bool
 	busy                          bool
 	errorText                     string
@@ -52,10 +69,15 @@ type serversModel struct {
 
 func newServersModel(userID, accessToken, grpcPort string) serversModel {
 	name, bio := textinput.New(), textinput.New()
+	input := textinput.New()
+	input.SetVirtualCursor(true)
 	name.Prompt, bio.Prompt = "Name: ", "Bio: "
 	name.SetVirtualCursor(true)
 	bio.SetVirtualCursor(true)
-	return serversModel{userID: userID, accessToken: accessToken, grpcPort: grpcPort, name: name, bio: bio, busy: true}
+	return serversModel{
+		userID: userID, accessToken: accessToken, grpcPort: grpcPort,
+		name: name, bio: bio, input: input, busy: true,
+	}
 }
 
 func (m serversModel) request(operation serverOperation, item *serversv1.ServerItem) tea.Cmd {
@@ -85,7 +107,9 @@ func (m serversModel) request(operation serverOperation, item *serversv1.ServerI
 				result.item = response.GetItem()
 			}
 		case createServer:
-			response, err := client.CreateServer(ctx, &serversv1.CreateServerRequest{ServerName: item.GetServerName(), ServerBio: item.GetServerBio()})
+			response, err := client.CreateServer(ctx, &serversv1.CreateServerRequest{
+				ServerName: item.GetServerName(), ServerBio: item.GetServerBio(),
+			})
 			result.err = err
 			if err == nil {
 				result.item = response.GetItem()
@@ -98,8 +122,12 @@ func (m serversModel) request(operation serverOperation, item *serversv1.ServerI
 			}
 		case deleteServer:
 			_, result.err = client.DeleteServer(ctx, &serversv1.DeleteServerRequest{ServerId: item.GetServerId()})
+		default:
+			m.memberRequest(ctx, client, &result)
 		}
-		if result.err == nil && operation != listServers && operation != deleteServer && result.item == nil {
+		wantsItem := operation == getServer || operation == createServer || operation == editServer ||
+			operation == previewServer || operation == joinServer
+		if result.err == nil && wantsItem && result.item == nil {
 			result.err = status.Error(codes.Internal, "server response is missing its item")
 		}
 		return result
@@ -113,9 +141,13 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 			m.errorText = "Could not complete server request. Please try again."
 			switch status.Code(result.err) {
 			case codes.PermissionDenied:
-				m.errorText = "Only the server owner can make this change."
+				m.errorText = "You do not have permission to perform this action."
 			case codes.NotFound:
-				m.errorText = "Server no longer exists. Refresh the server list."
+				m.errorText = "Server, member, or invitation was not found."
+			case codes.AlreadyExists:
+				m.errorText = "The user already belongs to this server."
+			case codes.InvalidArgument, codes.FailedPrecondition:
+				m.errorText = status.Convert(result.err).Message()
 			case codes.Unauthenticated:
 				m.errorText = "Session expired. Sign out and sign in again."
 			}
@@ -125,7 +157,7 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 		switch result.operation {
 		case listServers:
 			m.items, m.selected = result.items, 0
-		case getServer, createServer, editServer:
+		case getServer, createServer, editServer, joinServer:
 			m.item, m.page = result.item, serverDetails
 			found := false
 			for _, row := range m.items {
@@ -135,9 +167,20 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 				}
 			}
 			if !found {
-				m.items = append(m.items, &serversv1.UserServerItem{ServerId: result.item.ServerId, ServerName: result.item.ServerName})
+				m.items = append(m.items, &serversv1.UserServerItem{
+					ServerId: result.item.ServerId, ServerName: result.item.ServerName,
+				})
 			}
-		case deleteServer:
+		case previewServer:
+			m.item, m.page = result.item, serverJoinConfirmation
+		case inviteMember:
+			m.page, m.notice = serverDetails, "Invitation created."
+		case listMembers:
+			m.members, m.memberSelected, m.page = result.members, 0, serverMembers
+		case removeMember:
+			m.page, m.busy = serverMembers, true
+			return m, m.request(listMembers, nil)
+		case deleteServer, leaveServer:
 			for i, row := range m.items {
 				if row.ServerId == m.item.ServerId {
 					m.items = append(m.items[:i], m.items[i+1:]...)
@@ -154,12 +197,20 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 	key, isKey := msg.(tea.KeyPressMsg)
 	if isKey && key.String() == "esc" {
 		m.errorText = ""
-		if m.page == serverEdit || m.page == serverDeleteConfirmation {
+		if m.page == serverRemoveConfirmation {
+			m.page = serverMembers
+		} else if m.page == serverJoinConfirmation {
+			m.page = serverJoin
+		} else if m.page == serverEdit || m.page == serverDeleteConfirmation ||
+			m.page == serverInvite || m.page == serverMembers || m.page == serverLeaveConfirmation {
 			m.page = serverDetails
 		} else {
 			m.page = serversList
 		}
 		return m, nil
+	}
+	if updated, cmd, handled := m.updateMembers(msg); handled {
+		return updated, cmd
 	}
 	if m.page == serverCreate || m.page == serverEdit {
 		if isKey {
@@ -210,6 +261,11 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 			if m.selected < len(m.items)-1 {
 				m.selected++
 			}
+		case "c":
+			m.page, m.notice = serverJoin, ""
+			m.input.Prompt = "Share code: "
+			m.input.SetValue("")
+			return m, m.input.Focus()
 		case "r":
 			m.busy = true
 			return m, m.request(listServers, nil)
@@ -227,6 +283,21 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 			}
 		}
 	case serverDetails:
+		m.notice = ""
+		switch key.String() {
+		case "i":
+			m.page = serverInvite
+			m.input.Prompt = "Invited user ID: "
+			m.input.SetValue("")
+			return m, m.input.Focus()
+		case "m":
+			m.busy = true
+			return m, m.request(listMembers, nil)
+		case "l":
+			if m.item.Owner != m.userID {
+				m.page = serverLeaveConfirmation
+			}
+		}
 		if m.item.Owner == m.userID {
 			switch key.String() {
 			case "e":
@@ -268,7 +339,7 @@ func (m serversModel) View() string {
 			}
 			b.WriteString(row.ServerName + "\n")
 		}
-		b.WriteString("\n↑/↓ select · Enter open · n create · r refresh · Esc home")
+		b.WriteString("\n↑/↓ select · Enter open · n create · c join by code · r refresh · Esc home")
 	case serverCreate, serverEdit:
 		if m.page == serverCreate {
 			b.WriteString("Create server\n\n")
@@ -281,9 +352,18 @@ func (m serversModel) View() string {
 		if m.item.Owner == m.userID {
 			b.WriteString("\n\ne edit · d delete")
 		}
+		b.WriteString("\ni invite · m members")
+		if m.item.Owner != m.userID {
+			b.WriteString(" · l leave")
+		}
 		b.WriteString("\nEsc server list")
 	case serverDeleteConfirmation:
 		b.WriteString("Delete " + m.item.ServerName + "?\n\ny confirm · n cancel · Esc cancel")
+	default:
+		b.WriteString(m.membersView())
+	}
+	if m.notice != "" {
+		b.WriteString("\n\n" + m.notice)
 	}
 	if m.busy {
 		b.WriteString("\n\nLoading…")

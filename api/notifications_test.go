@@ -14,6 +14,9 @@ import (
 )
 
 type testNotificationStore struct {
+	invite            db.InviteNotification
+	inviteAdded       chan struct{}
+	updatedInvite     [2]gocql.UUID
 	message           db.MessageNotification
 	friend            db.FriendNotification
 	updatedMessage    [2]gocql.UUID
@@ -346,4 +349,22 @@ func TestSignedOutUserNotificationsUseDatabaseOnly(t *testing.T) {
 	if err != nil || broker.publishes != 0 || store.friendGets != 1 || response.GetItem().GetFriendshipId() != friendshipID.String() {
 		t.Fatalf("signed-out user did not use database only: broker=%+v gets=%d response=%+v error=%v", broker, store.friendGets, response, err)
 	}
+}
+
+func (s *testNotificationStore) AddInviteNotification(_ context.Context, item db.InviteNotification) error {
+	s.invite = item
+	if s.inviteAdded != nil {
+		s.inviteAdded <- struct{}{}
+	}
+	return nil
+}
+func (s *testNotificationStore) GetInviteNotifications(context.Context, gocql.UUID) ([]db.InviteNotification, error) {
+	if s.invite.NotificationID == (gocql.UUID{}) {
+		return nil, nil
+	}
+	return []db.InviteNotification{s.invite}, nil
+}
+func (s *testNotificationStore) UpdateInviteNotification(_ context.Context, userID, id gocql.UUID) error {
+	s.updatedInvite = [2]gocql.UUID{userID, id}
+	return nil
 }

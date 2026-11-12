@@ -22,6 +22,7 @@ dependencies already solve it.
 ## Writing style
 
 - No em-dashes. Say what you mean. When a literal phrase is available, use it.
+- Ensure long code lines are broken around 80 - 110 characters. Check previous updates as well.
 
 ## Creating Database model queries
 

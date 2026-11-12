@@ -13,7 +13,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type notificationTestServer struct {
@@ -38,16 +37,22 @@ func (s *notificationTestServer) GetFriendN10N(context.Context, *notificationsv1
 	return &notificationsv1.GetFriendN10NResponse{Item: s.friends[0]}, nil
 }
 
-func (s *notificationTestServer) UpdateMsgN10N(_ context.Context, req *notificationsv1.UpdateMsgN10NRequest) (*emptypb.Empty, error) {
+func (s *notificationTestServer) UpdateMsgN10N(
+	_ context.Context,
+	req *notificationsv1.UpdateMsgN10NRequest,
+) (*notificationsv1.UpdateMsgN10NResponse, error) {
 	s.updated = append(s.updated, req.GetItem().GetId())
 	s.messages = s.messages[1:]
-	return &emptypb.Empty{}, nil
+	return &notificationsv1.UpdateMsgN10NResponse{}, nil
 }
 
-func (s *notificationTestServer) UpdateFriendN10N(_ context.Context, req *notificationsv1.UpdateFriendN10NRequest) (*emptypb.Empty, error) {
+func (s *notificationTestServer) UpdateFriendN10N(
+	_ context.Context,
+	req *notificationsv1.UpdateFriendN10NRequest,
+) (*notificationsv1.UpdateFriendN10NResponse, error) {
 	s.updated = append(s.updated, req.GetItem().GetId())
 	s.friends = s.friends[1:]
-	return &emptypb.Empty{}, nil
+	return &notificationsv1.UpdateFriendN10NResponse{}, nil
 }
 
 func (s *notificationTestServer) Subscribe(_ *notificationsv1.SubscribeRequest, stream grpc.ServerStreamingServer[notificationsv1.SubscribeResponse]) error {

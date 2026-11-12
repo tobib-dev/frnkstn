@@ -51,6 +51,9 @@ func TestInviteMemberPermissionsAndGeneratedCode(t *testing.T) {
 		t.Fatalf("outsider could invite: %v", err)
 	}
 	for _, sender := range []gocql.UUID{owner, member} {
+		service.n10n = &notificationService{
+			cfg: service.cfg, store: &testNotificationStore{}, broker: &testNotificationBroker{},
+		}
 		response, err := service.InviteMember(authenticatedTestContext(sender), req)
 		if err != nil || response == nil {
 			t.Fatalf("invite failed: %v", err)

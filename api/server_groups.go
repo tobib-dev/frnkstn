@@ -24,6 +24,7 @@ type serverService struct {
 		PurgeServer(context.Context, gocql.UUID) error
 		CleanupRemovedMember(context.Context, gocql.UUID, gocql.UUID, time.Time) error
 	}
+	n10n   *notificationService
 	broker durableBroker
 	servV1.UnimplementedServerServiceServer
 }
@@ -31,6 +32,7 @@ type serverService struct {
 func NewServerService(cfg *Config) *serverService {
 	service := &serverService{
 		cfg:     cfg,
+		n10n:    NewNotificationService(cfg),
 		store:   &cfg.db.session,
 		users:   &cfg.db.session,
 		members: &cfg.db.session,

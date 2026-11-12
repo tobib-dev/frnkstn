@@ -9,6 +9,9 @@ import (
 )
 
 type NotificationStore interface {
+	AddInviteNotification(context.Context, InviteNotification) error
+	GetInviteNotifications(context.Context, gocql.UUID) ([]InviteNotification, error)
+	UpdateInviteNotification(context.Context, gocql.UUID, gocql.UUID) error
 	AddMessageNotification(context.Context, MessageNotification) error
 	GetMessageNotification(context.Context, gocql.UUID) ([]MessageNotification, error)
 	UpdateMessageNotification(context.Context, gocql.UUID, gocql.UUID) error
