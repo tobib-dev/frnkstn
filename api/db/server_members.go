@@ -245,6 +245,21 @@ func (db *DB) LeaveServer(
 		}
 	}
 	query := qb.Delete(
+		serverModeratorsMeta.Name,
+	).
+		Where(
+			qb.Eq("server_id"),
+			qb.Eq("mod_id"),
+		).Query(*db.Session)
+	if err := batch.BindMap(
+		query,
+		qb.M{
+			"server_id": serverID,
+			"mod_id":    userID,
+		}); err != nil {
+		return err
+	}
+	query = qb.Delete(
 		serverUserCursorMeta.Name,
 	).Where(
 		qb.Eq("user_id"),

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gocql/gocql"
+	"github.com/scylladb/gocqlx/v3"
 	"github.com/scylladb/gocqlx/v3/qb"
 	"github.com/scylladb/gocqlx/v3/table"
 )
@@ -76,7 +77,7 @@ var serverMembersMeta = table.Metadata{
 var serverMembersTable = table.New(serverMembersMeta)
 
 /*
- * Create server, add owner to mods table,
+ * Create server, add owner to member and moderator tables,
  * and insert owner's user id into the
  * servers by user table
  */
@@ -84,6 +85,20 @@ func (db *DB) CreateServer(
 	ctx context.Context,
 	server Server,
 ) (Server, error) {
+	batch, err := db.createServerBatch(ctx, server)
+	if err != nil {
+		return Server{}, err
+	}
+	if err := db.Session.ExecuteBatch(batch); err != nil {
+		return Server{}, err
+	}
+	return server, nil
+}
+
+func (db *DB) createServerBatch(
+	ctx context.Context,
+	server Server,
+) (*gocqlx.Batch, error) {
 	batch := db.Session.ContextBatch(ctx, gocql.LoggedBatch)
 
 	query := qb.Insert(serverMeta.Name).
@@ -95,12 +110,16 @@ func (db *DB) CreateServer(
 		"server_bio":  server.ServerBio,
 		"owner":       server.Owner,
 	}); err != nil {
-		return Server{}, err
+		return nil, err
 	}
 
 	if (server.Owner != gocql.UUID{}) {
 		cursor := time.Now().UTC().Truncate(time.Millisecond)
-		query = qb.Insert(serverUserCursorMeta.Name).Columns(serverUserCursorMeta.Columns...).Query(*db.Session)
+		query = qb.Insert(
+			serverUserCursorMeta.Name,
+		).
+			Columns(serverUserCursorMeta.Columns...).
+			Query(*db.Session)
 		if err := batch.BindStruct(
 			query,
 			ServerUserCursor{
@@ -109,7 +128,7 @@ func (db *DB) CreateServer(
 				Cursor:   cursor,
 			},
 		); err != nil {
-			return Server{}, err
+			return nil, err
 		}
 		query = qb.Insert(serverByUserMeta.Name).
 			Columns("user_id", "server_id", "server_name", "cursor").
@@ -120,26 +139,31 @@ func (db *DB) CreateServer(
 			"server_name": server.ServerName,
 			"cursor":      cursor,
 		}); err != nil {
-			return Server{}, err
+			return nil, err
 		}
 
-		query = qb.Insert(serverModeratorsMeta.Name).
-			Columns("server_id", "mod_id", "mod_name", "role").
-			Query(*db.Session)
-		if err := batch.BindMap(query, qb.M{
-			"server_id": server.ServerID,
-			"mod_id":    server.Owner,
-			"mod_name":  server.OwnerName,
-			"role":      "moderator",
+		query = db.Session.Query(serverMembersTable.Insert())
+		if err := batch.BindStruct(query, Member{
+			ServerID:   server.ServerID,
+			MemberID:   server.Owner,
+			MemberName: server.OwnerName,
+			Role:       "moderator",
 		}); err != nil {
-			return Server{}, err
+			return nil, err
+		}
+
+		query = db.Session.Query(serverModeratorsTable.Insert())
+		if err := batch.BindStruct(query, Mod{
+			ServerID: server.ServerID,
+			ModID:    server.Owner,
+			ModName:  server.OwnerName,
+			Role:     "moderator",
+		}); err != nil {
+			return nil, err
 		}
 	}
 
-	if err := db.Session.ExecuteBatch(batch); err != nil {
-		return Server{}, err
-	}
-	return server, nil
+	return batch, nil
 }
 
 // Check if deletion timestamp has a value if so return error
