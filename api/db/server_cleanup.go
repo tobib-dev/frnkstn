@@ -143,6 +143,7 @@ func (db *DB) PurgeServer(
 	for _, name := range []string{
 		serverMembersMeta.Name,
 		serverModeratorsMeta.Name,
+		revokedServerMembersTable.Name(),
 		"server_channels",
 		serverMeta.Name,
 	} {

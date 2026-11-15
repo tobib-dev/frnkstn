@@ -22,6 +22,8 @@ type testServerMemberStore struct {
 	joinErr     error
 	leaveUser   gocql.UUID
 	leaveServer gocql.UUID
+	revoked     bool
+	revokeErr   error
 	lists       int
 	invites     []db.ShareCode
 }
@@ -104,6 +106,16 @@ func (s *testServerMemberStore) LeaveServer(
 	return nil
 }
 
+func (s *testServerMemberStore) RevokeMember(
+	ctx context.Context, userID, serverID gocql.UUID,
+) error {
+	if s.revokeErr != nil {
+		return s.revokeErr
+	}
+	s.revoked = true
+	return s.LeaveServer(ctx, userID, serverID)
+}
+
 func (s *testServerMemberStore) JoinServer(
 	_ context.Context, args db.JoinServerArgs,
 ) (db.Server, error) {
@@ -149,7 +161,7 @@ func TestDeleteMemberRequiresModerator(t *testing.T) {
 			},
 		)
 		if moderator {
-			if err != nil || store.leaveUser != store.member.MemberID {
+			if err != nil || store.leaveUser != store.member.MemberID || !store.revoked {
 				t.Fatalf("moderator removal failed: %v", err)
 			}
 		} else if status.Code(err) != codes.PermissionDenied ||
@@ -176,7 +188,7 @@ func TestLeaveServerUsesBearerIdentity(t *testing.T) {
 		authenticatedTestContext(store.member.MemberID), req,
 	)
 	if err != nil || store.leaveUser != store.member.MemberID ||
-		store.leaveServer != store.member.ServerID {
+		store.leaveServer != store.member.ServerID || store.revoked {
 		t.Fatalf("wrong membership removed: %v", err)
 	}
 }
@@ -221,6 +233,7 @@ func TestJoinServerIdentityAndErrors(t *testing.T) {
 		{nil, codes.OK},
 		{db.ErrAlreadyServerMember, codes.AlreadyExists},
 		{db.ErrInvitationRecipient, codes.PermissionDenied},
+		{db.ErrServerMemberRevoked, codes.PermissionDenied},
 		{db.ErrInvitationUsed, codes.FailedPrecondition},
 		{gocql.ErrNotFound, codes.NotFound},
 		{errors.New("database offline"), codes.Internal},
@@ -244,5 +257,20 @@ func TestJoinServerIdentityAndErrors(t *testing.T) {
 	_, err := service.GetMembers(context.Background(), nil)
 	if status.Code(err) != codes.Unauthenticated {
 		t.Fatalf("unauthenticated list accepted: %v", err)
+	}
+}
+
+func TestMemberRevocationFailureIsReported(t *testing.T) {
+	owner := gocql.TimeUUID()
+	store := &testServerMemberStore{
+		member:    db.Member{ServerID: gocql.TimeUUID(), MemberID: gocql.TimeUUID()},
+		revokeErr: errors.New("database unavailable"),
+	}
+	service := memberTestService(store, owner)
+	_, err := service.DeleteMember(authenticatedTestContext(owner), &serversv1.DeleteMemberRequest{
+		ServerId: store.member.ServerID.String(), MemberId: store.member.MemberID.String(),
+	})
+	if status.Code(err) != codes.Internal || store.revoked || store.leaveUser != (gocql.UUID{}) {
+		t.Fatalf("failed revocation reported as removal: %v", err)
 	}
 }

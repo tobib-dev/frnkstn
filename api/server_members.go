@@ -294,7 +294,7 @@ func (s *serverService) DeleteMember(
 		return nil, s.memberError("get member", err)
 	}
 	removedAt := time.Now().UTC()
-	if err := s.members.LeaveServer(
+	if err := s.members.RevokeMember(
 		ctx, member.MemberID, serverID); err != nil {
 		return nil, s.memberError("remove member", err)
 	}
@@ -328,6 +328,8 @@ func (s *serverService) memberError(
 	operation string, err error,
 ) error {
 	switch {
+	case errors.Is(err, db.ErrServerMemberRevoked):
+		return status.Error(codes.PermissionDenied, "membership in this server has been revoked")
 	case errors.Is(err, gocql.ErrNotFound):
 		return status.Error(
 			codes.NotFound,

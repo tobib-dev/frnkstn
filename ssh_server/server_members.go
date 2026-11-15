@@ -174,7 +174,7 @@ func (m serversModel) membersView() string {
 		return "Leave " + m.item.GetServerName() + "?\n\ny leave · n cancel · Esc back"
 	case serverRemoveConfirmation:
 		return "Remove " + m.members[m.memberSelected].GetMemberName() +
-			"?\n\ny remove · n cancel · Esc back"
+			"?\nThey will not be able to rejoin this server.\n\ny remove · n cancel · Esc back"
 	case serverMembers:
 		var b strings.Builder
 		b.WriteString(m.item.GetServerName() + " members\n\n")

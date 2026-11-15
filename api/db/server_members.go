@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/gocql/gocql"
+	"github.com/scylladb/gocqlx/v3"
 	"github.com/scylladb/gocqlx/v3/qb"
 	"github.com/scylladb/gocqlx/v3/table"
 )
@@ -13,6 +14,7 @@ import (
 type ServerMemberStore interface {
 	JoinServer(context.Context, JoinServerArgs) (Server, error)
 	LeaveServer(context.Context, gocql.UUID, gocql.UUID) error
+	RevokeMember(context.Context, gocql.UUID, gocql.UUID) error
 	GetMembers(context.Context, gocql.UUID) ([]Member, error)
 	ShareServer(context.Context, ShareCode) error
 	GetMember(context.Context, gocql.UUID, gocql.UUID) (Member, error)
@@ -105,6 +107,9 @@ func (db *DB) JoinServer(
 		return Server{}, ErrInvitationUsed
 	}
 
+	if err := db.checkServerRevocation(ctx, shareInfo.ServerID, args.UserID); err != nil {
+		return Server{}, err
+	}
 	server, err := db.GetServer(ctx, shareInfo.ServerID)
 	if err != nil {
 		return Server{},
@@ -136,6 +141,10 @@ func (db *DB) JoinServer(
 	if !errors.Is(err, gocql.ErrNotFound) {
 		return Server{}, err
 	}
+	invites, err := db.GetInviteNotifications(ctx, args.UserID)
+	if err != nil {
+		return Server{}, fmt.Errorf("error fetching invite notifications: %w", err)
+	}
 	claim, err := db.claimServerInvitation(
 		ctx, args.UserID, server.ServerID, args.Code)
 	if err != nil {
@@ -144,6 +153,9 @@ func (db *DB) JoinServer(
 	}
 
 	batch := db.Session.ContextBatch(ctx, gocql.LoggedBatch)
+	if err := db.bindSeenInvites(batch, invites, shareInfo); err != nil {
+		return Server{}, err
+	}
 
 	query := qb.Delete(serverShareCodeMeta.Name).
 		Where(qb.Eq("share_code")).
@@ -183,6 +195,19 @@ func (db *DB) JoinServer(
 	if err = db.Session.ExecuteBatch(batch); err != nil {
 		return Server{}, err
 	}
+	// A removal may have committed while this join was writing membership.
+	if err := db.checkServerRevocation(ctx, server.ServerID, args.UserID); err != nil {
+		if errors.Is(err, ErrServerMemberRevoked) {
+			cleanup, cleanupErr := db.memberRemovalBatch(ctx, claim, false)
+			if cleanupErr != nil {
+				return Server{}, cleanupErr
+			}
+			if cleanupErr := db.Session.ExecuteBatch(cleanup); cleanupErr != nil {
+				return Server{}, cleanupErr
+			}
+		}
+		return Server{}, err
+	}
 	return server, nil
 }
 
@@ -206,14 +231,37 @@ func (db *DB) LeaveServer(
 	ctx context.Context,
 	userID, serverID gocql.UUID,
 ) error {
+	return db.removeServerMember(ctx, userID, serverID, false)
+}
+
+func (db *DB) removeServerMember(
+	ctx context.Context,
+	userID, serverID gocql.UUID,
+	revoke bool,
+) error {
 	if userID == (gocql.UUID{}) ||
 		serverID == (gocql.UUID{}) {
 		return errors.New("user and server are required")
 	}
-	cursor, err := db.GetServerUserCursor(ctx, userID, serverID)
+	cursor, err := db.GetServerUserCursor(
+		ctx, userID, serverID)
 	if err != nil {
 		return err
 	}
+	batch, err := db.memberRemovalBatch(
+		ctx, cursor, revoke)
+	if err != nil {
+		return err
+	}
+	return db.Session.ExecuteBatch(batch)
+}
+
+func (db *DB) memberRemovalBatch(
+	ctx context.Context,
+	cursor ServerUserCursor,
+	revoke bool,
+) (*gocqlx.Batch, error) {
+	userID, serverID := cursor.UserID, cursor.ServerID
 	batch := db.Session.ContextBatch(ctx, gocql.LoggedBatch)
 
 	if (userID != gocql.UUID{}) {
@@ -225,7 +273,7 @@ func (db *DB) LeaveServer(
 			"server_id": serverID,
 			"member_id": userID,
 		}); err != nil {
-			return err
+			return nil, err
 		}
 
 		query = qb.Delete(
@@ -241,7 +289,7 @@ func (db *DB) LeaveServer(
 			"server_id": serverID,
 			"cursor":    cursor.Cursor,
 		}); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	query := qb.Delete(
@@ -257,7 +305,7 @@ func (db *DB) LeaveServer(
 			"server_id": serverID,
 			"mod_id":    userID,
 		}); err != nil {
-		return err
+		return nil, err
 	}
 	query = qb.Delete(
 		serverUserCursorMeta.Name,
@@ -267,14 +315,23 @@ func (db *DB) LeaveServer(
 	).Query(*db.Session)
 	if err := batch.BindMap(query,
 		qb.M{
-			"user_id": userID, "server_id": serverID,
+			"user_id":   userID,
+			"server_id": serverID,
 		},
 	); err != nil {
-		return err
+		return nil, err
 	}
 
-	if err := db.Session.ExecuteBatch(batch); err != nil {
-		return err
+	if revoke {
+		query := db.Session.Query(
+			revokedServerMembersTable.Insert())
+		if err := batch.BindStruct(
+			query, Member{
+				ServerID: serverID,
+				MemberID: userID,
+			}); err != nil {
+			return nil, err
+		}
 	}
-	return nil
+	return batch, nil
 }

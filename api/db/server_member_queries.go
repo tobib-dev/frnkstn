@@ -50,5 +50,8 @@ func (db *DB) GetServerByCode(
 	if invite.Used {
 		return Server{}, ErrInvitationUsed
 	}
+	if err := db.checkServerRevocation(ctx, invite.ServerID, userID); err != nil {
+		return Server{}, err
+	}
 	return db.GetServer(ctx, invite.ServerID)
 }
