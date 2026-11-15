@@ -26,6 +26,10 @@ const (
 	serverMembers
 	serverLeaveConfirmation
 	serverRemoveConfirmation
+	serverMods
+	serverModDetails
+	serverPromoteConfirmation
+	serverDemoteConfirmation
 )
 
 type serverOperation int
@@ -43,6 +47,10 @@ const (
 	leaveServer
 	removeMember
 	listFriends
+	listMods
+	getMod
+	addMod
+	deleteMod
 )
 
 type serverResultMsg struct {
@@ -50,6 +58,8 @@ type serverResultMsg struct {
 	items     []*serversv1.UserServerItem
 	item      *serversv1.ServerItem
 	members   []*serversv1.MemberItem
+	mods      []*serversv1.ModItem
+	mod       *serversv1.ModItem
 	friends   []*friendsv1.GetFriendsItem
 	err       error
 }
@@ -65,6 +75,9 @@ type serversModel struct {
 	input            textinput.Model
 	members          []*serversv1.MemberItem
 	memberSelected   int
+	mods             []*serversv1.ModItem
+	modSelected      int
+	mod              *serversv1.ModItem
 	friends          []*friendsv1.GetFriendsItem
 	friendSelected   int
 	notice           string
@@ -138,6 +151,8 @@ func (m serversModel) request(operation serverOperation, item *serversv1.ServerI
 					}
 				}
 			}
+		case listMods, getMod, addMod, deleteMod:
+			m.modRequest(ctx, client, &result)
 		default:
 			m.memberRequest(ctx, client, &result)
 		}
@@ -145,6 +160,9 @@ func (m serversModel) request(operation serverOperation, item *serversv1.ServerI
 			operation == previewServer || operation == joinServer
 		if result.err == nil && wantsItem && result.item == nil {
 			result.err = status.Error(codes.Internal, "server response is missing its item")
+		}
+		if result.err == nil && (operation == getMod || operation == addMod) && result.mod == nil {
+			result.err = status.Error(codes.Internal, "moderator response is missing its item")
 		}
 		return result
 	}
@@ -159,9 +177,12 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 			case codes.PermissionDenied:
 				m.errorText = "You do not have permission to perform this action."
 			case codes.NotFound:
-				m.errorText = "Server, member, or invitation was not found."
+				m.errorText = "Server, member, moderator, or invitation was not found."
 			case codes.AlreadyExists:
 				m.errorText = "The user already belongs to this server."
+				if result.operation == addMod {
+					m.errorText = "This member is already a moderator."
+				}
 			case codes.InvalidArgument, codes.FailedPrecondition:
 				m.errorText = status.Convert(result.err).Message()
 			case codes.Unauthenticated:
@@ -195,6 +216,17 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 			m.friends, m.friendSelected = result.friends, 0
 		case listMembers:
 			m.members, m.memberSelected, m.page = result.members, 0, serverMembers
+		case listMods:
+			m.mods, m.modSelected, m.page = result.mods, 0, serverMods
+		case getMod:
+			m.mod, m.page = result.mod, serverModDetails
+		case addMod, deleteMod:
+			m.page, m.busy = serverMods, true
+			m.notice = "Moderator added."
+			if result.operation == deleteMod {
+				m.notice = "Moderator demoted. They remain a server member."
+			}
+			return m, m.request(listMods, nil)
 		case removeMember:
 			m.page, m.busy = serverMembers, true
 			return m, m.request(listMembers, nil)
@@ -215,8 +247,14 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 	key, isKey := msg.(tea.KeyPressMsg)
 	if isKey && key.String() == "esc" {
 		m.errorText = ""
-		if m.page == serverRemoveConfirmation {
+		if m.page == serverRemoveConfirmation || m.page == serverPromoteConfirmation {
 			m.page = serverMembers
+		} else if m.page == serverDemoteConfirmation {
+			m.page = serverModDetails
+		} else if m.page == serverModDetails {
+			m.page = serverMods
+		} else if m.page == serverMods {
+			m.page = serverDetails
 		} else if m.page == serverJoinConfirmation {
 			m.page = serverJoin
 		} else if m.page == serverEdit || m.page == serverDeleteConfirmation ||
@@ -226,6 +264,9 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 			m.page = serversList
 		}
 		return m, nil
+	}
+	if updated, cmd, handled := m.updateMods(msg); handled {
+		return updated, cmd
 	}
 	if updated, cmd, handled := m.updateMembers(msg); handled {
 		return updated, cmd
@@ -306,6 +347,10 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 		case "i":
 			m.page, m.busy, m.notice = serverInvite, true, ""
 			return m, m.request(listFriends, nil)
+		case "o":
+			m.mods, m.modSelected, m.mod = nil, 0, nil
+			m.page, m.busy, m.errorText = serverMods, true, ""
+			return m, m.request(listMods, nil)
 		case "m":
 			m.busy = true
 			return m, m.request(listMembers, nil)
@@ -368,13 +413,15 @@ func (m serversModel) View() string {
 		if m.item.Owner == m.userID {
 			b.WriteString("\n\ne edit · d delete")
 		}
-		b.WriteString("\ni invite · m members")
+		b.WriteString("\ni invite · m members · o moderators")
 		if m.item.Owner != m.userID {
 			b.WriteString(" · l leave")
 		}
 		b.WriteString("\nEsc server list")
 	case serverDeleteConfirmation:
 		b.WriteString("Delete " + m.item.ServerName + "?\n\ny confirm · n cancel · Esc cancel")
+	case serverMods, serverModDetails, serverPromoteConfirmation, serverDemoteConfirmation:
+		b.WriteString(m.modsView())
 	default:
 		b.WriteString(m.membersView())
 	}

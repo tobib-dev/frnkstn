@@ -126,6 +126,14 @@ func (m serversModel) updateMembers(msg tea.Msg) (serversModel, tea.Cmd, bool) {
 			case "r":
 				m.busy = true
 				return m, m.request(listMembers, nil), true
+			case "p":
+				if len(m.members) > 0 {
+					if m.members[m.memberSelected].GetMemberId() == m.item.GetOwner() {
+						m.errorText = "The owner is already a moderator."
+					} else {
+						m.page, m.errorText, m.notice = serverPromoteConfirmation, "", ""
+					}
+				}
 			case "d":
 				// The API authorizes removal for owners and moderators.
 				if len(m.members) > 0 {
@@ -181,7 +189,8 @@ func (m serversModel) membersView() string {
 			}
 			b.WriteString(member.GetMemberName() + "\n")
 		}
-		b.WriteString("\n↑/↓ select · r refresh · d remove (owner/mod) · Esc back")
+		b.WriteString("\n↑/↓ select · r refresh · p promote (owner/mod)")
+		b.WriteString(" · d remove (owner/mod) · Esc back")
 		return b.String()
 	}
 	return ""
