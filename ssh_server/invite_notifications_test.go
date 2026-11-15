@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	notificationsv1 "github.com/tobib-dev/frnkstn-proto/notifications/v1"
+	serversv1 "github.com/tobib-dev/frnkstn-proto/servers/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -67,7 +68,7 @@ func TestInvitationNotificationFlow(t *testing.T) {
 	}
 	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
 	m, _ = m.Update(enter)
-	m.actionCursor = 2
+	m.actionCursor = 1
 	m, cmd := m.Update(enter)
 	msg, ok := cmd().(enterNotificationInviteMsg)
 	if !ok || msg.shareCode != "code" {
@@ -91,5 +92,61 @@ func TestInvitationNotificationFlow(t *testing.T) {
 	}
 	if cmd := func() tea.Cmd { _, cmd := m.Update(enter); return cmd }(); cmd != nil {
 		t.Fatal("empty filtered list should not select unrelated notification")
+	}
+}
+
+func TestJoiningClearsInvitationOnlyAfterSuccess(t *testing.T) {
+	for _, success := range []bool{false, true} {
+		home := newHomeModel(80, 24)
+		home.state = homeViewingServers
+		home.servers = newServersModel("user", bearerToken{}, "")
+		home.servers.page = serverJoinConfirmation
+		home.servers.input.SetValue(" code ")
+		home.notificationItems = []notificationItem{
+			{kind: inviteNotification, invite: &notificationsv1.InviteN10NItem{Id: "accepted", ShareCode: "code"}},
+			{kind: inviteNotification, invite: &notificationsv1.InviteN10NItem{Id: "other", ShareCode: "other"}},
+		}
+		result := serverResultMsg{operation: joinServer}
+		if success {
+			result.item = &serversv1.ServerItem{ServerId: "server"}
+		} else {
+			result.err = status.Error(codes.PermissionDenied, "denied")
+		}
+		home, _ = home.Update(result)
+		want := 2
+		if success {
+			want = 1
+		}
+		if len(home.notificationItems) != want {
+			t.Fatal("incorrect invitation cleanup")
+		}
+		if success && (home.notificationItems[0].id() != "other" || home.notificationCounter.Load() != 1) {
+			t.Fatal("wrong invitation or counter removed")
+		}
+	}
+}
+
+func TestInvitationEscapeLeavesItPending(t *testing.T) {
+	m := newNotificationsModel("user", bearerToken{}, "")
+	m.loading = false
+	m.items = []notificationItem{{kind: inviteNotification,
+		invite: &notificationsv1.InviteN10NItem{Id: "invite", ShareCode: "code"},
+	}}
+	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if strings.Contains(m.View(), "Ignore") {
+		t.Fatal("explicit ignore action remains")
+	}
+	m, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if cmd != nil || len(m.items) != 1 || m.selected != -1 {
+		t.Fatal("escape changed invitation")
+	}
+	home := newHomeModel(80, 24)
+	home.notificationItems = m.items
+	home, _ = home.Update(enterNotificationInviteMsg{shareCode: "code"})
+	home.servers.busy = false
+	home.servers.page = serverJoinConfirmation
+	home, _ = home.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if len(home.notificationItems) != 1 || home.servers.page != serverJoin {
+		t.Fatal("cancelling join changed invitation")
 	}
 }

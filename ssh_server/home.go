@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -206,6 +207,19 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		}
 		var cmd tea.Cmd
 		m.servers, cmd = m.servers.Update(msg)
+		if result, ok := msg.(serverResultMsg); ok && result.operation == joinServer &&
+			result.err == nil && result.item != nil {
+			items := make([]notificationItem, 0, len(m.notificationItems))
+			for _, item := range m.notificationItems {
+				if item.kind == inviteNotification &&
+					item.invite.GetShareCode() == strings.TrimSpace(m.servers.input.Value()) {
+					continue
+				}
+				items = append(items, item)
+			}
+			m.notificationItems = items
+			m.setNotificationCounters(items)
+		}
 		return m, cmd
 	}
 	if updated, ok := msg.(profileUpdatedMsg); ok && m.state == homeEditingProfile {

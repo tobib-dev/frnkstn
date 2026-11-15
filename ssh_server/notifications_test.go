@@ -139,7 +139,7 @@ func TestHomeNotificationsGetAndMarkSeen(t *testing.T) {
 		view,
 		"Mark as seen",
 	) ||
-		!strings.Contains(
+		strings.Contains(
 			view,
 			"Ignore",
 		) ||
@@ -223,8 +223,7 @@ func TestMessageNotificationCanBeIgnoredOrOpenConversation(t *testing.T) {
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	m, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if cmd != nil ||
 		m.notifications.selected != -1 ||
 		len(
@@ -237,7 +236,6 @@ func TestMessageNotificationCanBeIgnoredOrOpenConversation(t *testing.T) {
 	}
 
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	m, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if cmd == nil || !m.notifications.updating {

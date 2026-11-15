@@ -2,8 +2,10 @@ package db
 
 import (
 	"context"
+	"errors"
 
 	"github.com/gocql/gocql"
+	"github.com/scylladb/gocqlx/v3"
 	"github.com/scylladb/gocqlx/v3/qb"
 	"github.com/scylladb/gocqlx/v3/table"
 )
@@ -45,7 +47,27 @@ func (db *DB) GetInviteNotifications(
 	).WithContext(ctx).
 		BindMap(qb.M{"user_id": userID}).
 		SelectRelease(&items)
-	return items, err
+	if err != nil {
+		return nil, err
+	}
+	pending := make([]InviteNotification, 0, len(items))
+	for _, item := range items {
+		invite := ShareCode{Code: item.ShareCode}
+		err := db.Session.Query(serverShareCodeTable.Get()).
+			WithContext(ctx).BindStruct(invite).GetRelease(&invite)
+		// A queued notification can arrive after joining consumed its share code.
+		if errors.Is(err, gocql.ErrNotFound) || (err == nil && invite.Used) {
+			if err := db.UpdateInviteNotification(ctx, userID, item.NotificationID); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		pending = append(pending, item)
+	}
+	return pending, nil
 }
 
 func (db *DB) UpdateInviteNotification(
@@ -61,4 +83,18 @@ func (db *DB) UpdateInviteNotification(
 				"notification_id": notificationID,
 			},
 		).ExecRelease()
+}
+
+func (db *DB) bindSeenInvites(
+	batch *gocqlx.Batch, items []InviteNotification, invite ShareCode,
+) error {
+	for _, item := range items {
+		if item.UserID != invite.Receiver || item.ServerID != invite.ServerID || item.ShareCode != invite.Code {
+			continue
+		}
+		if err := batch.BindStruct(db.Session.Query(inviteNotificationTable.Delete()), item); err != nil {
+			return err
+		}
+	}
+	return nil
 }

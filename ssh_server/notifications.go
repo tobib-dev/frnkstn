@@ -63,7 +63,6 @@ type notificationAction int
 
 const (
 	markNotificationSeen notificationAction = iota
-	ignoreNotification
 	enterNotificationConversation
 	openNotificationInvite
 )
@@ -171,10 +170,6 @@ func (m notificationsModel) updateSelected(msg tea.Msg) (notificationsModel, tea
 		m.errorText = ""
 	case "enter":
 		action := actions[m.actionCursor]
-		if action == ignoreNotification {
-			m.selected = -1
-			return m, nil
-		}
 		if action == openNotificationInvite {
 			code := m.items[m.selected].invite.GetShareCode()
 			m.selected = -1
@@ -193,7 +188,7 @@ func (m notificationsModel) updateSelected(msg tea.Msg) (notificationsModel, tea
 }
 
 func (m notificationsModel) actions() []notificationAction {
-	actions := []notificationAction{markNotificationSeen, ignoreNotification}
+	actions := []notificationAction{markNotificationSeen}
 	if m.items[m.selected].kind == messageNotification {
 		actions = append(actions, enterNotificationConversation)
 	}
@@ -207,8 +202,6 @@ func (a notificationAction) label() string {
 	switch a {
 	case markNotificationSeen:
 		return "Mark as seen"
-	case ignoreNotification:
-		return "Ignore"
 	case openNotificationInvite:
 		return "Open invitation"
 	default:
