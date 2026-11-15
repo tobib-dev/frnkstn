@@ -17,6 +17,7 @@ type testServerMemberStore struct {
 	db.ServerMemberStore
 	member      db.Member
 	moderator   bool
+	moderatorID gocql.UUID
 	joinArgs    db.JoinServerArgs
 	joinErr     error
 	leaveUser   gocql.UUID
@@ -84,9 +85,9 @@ func (s *testServerMemberStore) GetMember(
 }
 
 func (s *testServerMemberStore) IsServerModerator(
-	context.Context, gocql.UUID, gocql.UUID,
+	_ context.Context, _ gocql.UUID, userID gocql.UUID,
 ) (bool, error) {
-	return s.moderator, nil
+	return s.moderator || userID == s.moderatorID, nil
 }
 
 func (s *testServerMemberStore) GetMembers(
@@ -132,7 +133,12 @@ func TestDeleteMemberRequiresModerator(t *testing.T) {
 			member: db.Member{
 				ServerID: gocql.TimeUUID(), MemberID: gocql.TimeUUID(),
 			},
-			moderator: moderator,
+			moderatorID: func() gocql.UUID {
+				if moderator {
+					return actor
+				}
+				return gocql.UUID{}
+			}(),
 		}
 		service := memberTestService(store, owner)
 		_, err := service.DeleteMember(

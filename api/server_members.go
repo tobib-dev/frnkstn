@@ -197,7 +197,8 @@ func (s *serverService) LeaveServer(
 		return nil, err
 	}
 	logger = logger.With("user_id", userID)
-	serverID, err := parseID(req.GetServerId(), "server ID")
+	serverID, err := parseID(
+		req.GetServerId(), "server ID")
 	if err != nil {
 		return nil, err
 	}
@@ -207,20 +208,26 @@ func (s *serverService) LeaveServer(
 	}
 	if userID == server.Owner {
 		return nil, status.Error(
-			codes.FailedPrecondition, "transfer ownership before leaving",
+			codes.FailedPrecondition,
+			"transfer ownership before leaving",
 		)
 	}
-	if _, err := s.members.GetMember(ctx, serverID, userID); err != nil {
+	if _, err := s.members.GetMember(
+		ctx, serverID, userID); err != nil {
 		return nil, s.memberError("get member", err)
 	}
 	removedAt := time.Now().UTC()
-	if err := s.members.LeaveServer(ctx, userID, serverID); err != nil {
+	if err := s.members.LeaveServer(
+		ctx, userID, serverID); err != nil {
 		return nil, s.memberError("leave server", err)
 	}
-	s.queueServerCleanup(serverCleanupEvent{
-		Operation: cleanupMemberRemoved, ServerID: serverID.String(),
-		UserID: userID.String(), RemovedAt: removedAt,
-	})
+	s.queueServerCleanup(
+		serverCleanupEvent{
+			Operation: cleanupMemberRemoved,
+			ServerID:  serverID.String(),
+			UserID:    userID.String(),
+			RemovedAt: removedAt,
+		})
 	return &serversv1.LeaveServerResponse{}, nil
 }
 
@@ -250,29 +257,54 @@ func (s *serverService) DeleteMember(
 		return nil, s.memberError("get server", err)
 	}
 	if userID != server.Owner {
-		moderator, err := s.members.IsServerModerator(ctx, serverID, userID)
+		moderator, err := s.members.IsServerModerator(
+			ctx, serverID, userID)
 		if err != nil {
 			return nil, s.memberError("check moderator", err)
 		}
 		if !moderator {
-			return nil, status.Error(codes.PermissionDenied, "moderator permission required")
+			return nil,
+				status.Error(codes.PermissionDenied,
+					"moderator permission required")
 		}
 	}
 	if memberID == server.Owner {
-		return nil, status.Error(codes.PermissionDenied, "cannot remove server owner")
+		return nil,
+			status.Error(
+				codes.PermissionDenied,
+				"cannot remove server owner")
 	}
-	member, err := s.members.GetMember(ctx, serverID, memberID)
+	if userID != server.Owner {
+		moderator, err := s.members.IsServerModerator(
+			ctx, serverID, memberID)
+		if err != nil {
+			return nil, s.memberError(
+				"check target moderator", err)
+		}
+		if moderator {
+			return nil,
+				status.Error(
+					codes.PermissionDenied,
+					"only the owner can remove a moderator")
+		}
+	}
+	member, err := s.members.GetMember(
+		ctx, serverID, memberID)
 	if err != nil {
 		return nil, s.memberError("get member", err)
 	}
 	removedAt := time.Now().UTC()
-	if err := s.members.LeaveServer(ctx, member.MemberID, serverID); err != nil {
+	if err := s.members.LeaveServer(
+		ctx, member.MemberID, serverID); err != nil {
 		return nil, s.memberError("remove member", err)
 	}
-	s.queueServerCleanup(serverCleanupEvent{
-		Operation: cleanupMemberRemoved, ServerID: serverID.String(),
-		UserID: member.MemberID.String(), RemovedAt: removedAt,
-	})
+	s.queueServerCleanup(
+		serverCleanupEvent{
+			Operation: cleanupMemberRemoved,
+			ServerID:  serverID.String(),
+			UserID:    member.MemberID.String(),
+			RemovedAt: removedAt,
+		})
 	return &serversv1.DeleteMemberResponse{}, nil
 }
 
@@ -280,29 +312,48 @@ func logMemberRPCError(logger *slog.Logger, err error) {
 	if err == nil {
 		return
 	}
-	fields := []any{"error", err, "code", status.Code(err).String()}
+	fields := []any{
+		"error", err, "code",
+		status.Code(err).String(),
+	}
 	if status.Code(err) == codes.Internal {
-		logger.Error("server member request failed", fields...)
+		logger.Error(
+			"server member request failed", fields...)
 		return
 	}
 	logger.Warn("server member request rejected", fields...)
 }
 
-func (s *serverService) memberError(operation string, err error) error {
+func (s *serverService) memberError(
+	operation string, err error,
+) error {
 	switch {
 	case errors.Is(err, gocql.ErrNotFound):
-		return status.Error(codes.NotFound, "server, member or invitation not found")
+		return status.Error(
+			codes.NotFound,
+			"server, member or invitation not found")
 	case errors.Is(err, db.ErrAlreadyServerMember):
-		return status.Error(codes.AlreadyExists, "user already belongs to server")
+		return status.Error(
+			codes.AlreadyExists,
+			"user already belongs to server")
 	case errors.Is(err, db.ErrInvitationRecipient):
-		return status.Error(codes.PermissionDenied, "invitation belongs to another user")
+		return status.Error(
+			codes.PermissionDenied,
+			"invitation belongs to another user")
 	case errors.Is(err, db.ErrInvitationUsed):
-		return status.Error(codes.FailedPrecondition, "invitation has been used")
+		return status.Error(
+			codes.FailedPrecondition,
+			"invitation has been used")
 	case errors.Is(err, db.ErrShareCodeExists):
-		return status.Error(codes.AlreadyExists, "invitation code already exists")
+		return status.Error(
+			codes.AlreadyExists,
+			"invitation code already exists")
 	default:
-		s.cfg.logger.Error("server member operation failed",
+		s.cfg.logger.Error(
+			"server member operation failed",
 			"operation", operation, "error", err)
-		return status.Error(codes.Internal, "could not "+operation)
+		return status.Error(
+			codes.Internal,
+			"could not "+operation)
 	}
 }

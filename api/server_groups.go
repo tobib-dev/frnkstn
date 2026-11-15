@@ -18,6 +18,7 @@ type serverService struct {
 	store   db.ServerStore
 	users   db.UserStore
 	members db.ServerMemberStore
+	mods    db.ServerModsStore
 	cleanup interface {
 		UpdateServerLookups(context.Context, gocql.UUID) error
 		MarkServerLookupsDeleted(context.Context, gocql.UUID) error
@@ -36,6 +37,7 @@ func NewServerService(cfg *Config) *serverService {
 		store:   &cfg.db.session,
 		users:   &cfg.db.session,
 		members: &cfg.db.session,
+		mods:    &cfg.db.session,
 		cleanup: &cfg.db.session,
 	}
 	if cfg.brokerURI != "" {
@@ -47,12 +49,14 @@ func NewServerService(cfg *Config) *serverService {
 func (s *serverService) CreateServer(
 	ctx context.Context,
 	req *servV1.CreateServerRequest,
-) (*servV1.CreateServerResponse, error) {
-	logger := s.cfg.logger
+) (response *servV1.CreateServerResponse, rpcErr error) {
+	logger := s.cfg.logger.With("operation", "CreateServer")
+	defer func() { logMemberRPCError(logger, rpcErr) }()
 	userID, err := authenticatedUserID(ctx, s.cfg, "")
 	if err != nil {
 		return nil, err
 	}
+	logger = logger.With("user_id", userID)
 	user, err := s.users.GetUserByID(ctx, userID)
 	if err != nil {
 		logger.Error("failed to get server creator", "user_id", userID, "error", err)
@@ -60,6 +64,7 @@ func (s *serverService) CreateServer(
 	}
 
 	serverID := gocql.UUIDFromTime(time.Now())
+	logger = logger.With("server_id", serverID)
 	server, err := s.store.CreateServer(
 		ctx,
 		db.Server{
@@ -139,7 +144,9 @@ func (s *serverService) EditServer(
 ) (*servV1.EditServerResponse, error) {
 	item := req.GetItem()
 	if item == nil {
-		return nil, status.Error(codes.InvalidArgument, "server item is required")
+		return nil, status.Error(
+			codes.InvalidArgument,
+			"server item is required")
 	}
 	logger := s.cfg.logger
 	userID, err := authenticatedUserID(ctx, s.cfg, "")
@@ -158,11 +165,15 @@ func (s *serverService) EditServer(
 
 	server, err := s.store.GetServer(ctx, serverID)
 	if err != nil {
-		logger.Error("failed to get server for edit", "server_id", serverID, "error", err)
+		logger.Error(
+			"failed to get server for edit",
+			"server_id", serverID, "error", err)
 		return nil, serverLookupError(err)
 	}
 	if userID != server.Owner {
-		return nil, status.Error(codes.PermissionDenied, "only the owner can edit the server")
+		return nil, status.Error(
+			codes.PermissionDenied,
+			"only the owner can edit the server")
 	}
 	newServerInfo, err := s.store.EditServer(
 		ctx, serverID,
@@ -173,13 +184,17 @@ func (s *serverService) EditServer(
 		},
 	)
 	if err != nil {
-		logger.Error("failed to edit server", "server_id", serverID, "error", err)
-		return nil, status.Error(codes.Internal, "could not edit server")
+		logger.Error(
+			"failed to edit server",
+			"server_id", serverID, "error", err)
+		return nil, status.Error(
+			codes.Internal, "could not edit server")
 	}
 
 	// handle cleaning up server by users and return server item
 	if server.ServerName != newServerInfo.ServerName {
-		s.handleServerByUserCleanup(ctx, serverID, cleanupServerEdit)
+		s.handleServerByUserCleanup(
+			ctx, serverID, cleanupServerEdit)
 	}
 	return &servV1.EditServerResponse{
 		Item: serverItem(newServerInfo),
@@ -206,19 +221,27 @@ func (s *serverService) DeleteServer(
 	}
 	server, err := s.store.GetServer(ctx, serverID)
 	if err != nil {
-		logger.Error("failed to get server for deletion", "server_id", serverID, "error", err)
+		logger.Error(
+			"failed to get server for deletion",
+			"server_id", serverID, "error", err)
 		return nil, serverLookupError(err)
 	}
 	if server.Owner != userID {
-		return nil, status.Error(codes.PermissionDenied, "only the owner can delete the server")
+		return nil, status.Error(
+			codes.PermissionDenied,
+			"only the owner can delete the server")
 	}
 	delTime := time.Now()
 	err = s.store.DeleteServer(ctx, serverID, &delTime)
 	if err != nil {
-		logger.Error("failed to delete server", "server_id", serverID, "error", err)
-		return nil, status.Error(codes.Internal, "could not delete server")
+		logger.Error(
+			"failed to delete server",
+			"server_id", serverID, "error", err)
+		return nil, status.Error(
+			codes.Internal, "could not delete server")
 	}
-	s.handleServerByUserCleanup(ctx, serverID, cleanupServerDelete)
+	s.handleServerByUserCleanup(
+		ctx, serverID, cleanupServerDelete)
 	return &servV1.DeleteServerResponse{
 		Status: "successfully deleted",
 	}, nil
