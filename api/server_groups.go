@@ -14,12 +14,13 @@ import (
 )
 
 type serverService struct {
-	cfg     *Config
-	store   db.ServerStore
-	users   db.UserStore
-	members db.ServerMemberStore
-	mods    db.ServerModsStore
-	cleanup interface {
+	cfg      *Config
+	store    db.ServerStore
+	users    db.UserStore
+	members  db.ServerMemberStore
+	mods     db.ServerModsStore
+	channels db.ChannelStore
+	cleanup  interface {
 		UpdateServerLookups(context.Context, gocql.UUID) error
 		MarkServerLookupsDeleted(context.Context, gocql.UUID) error
 		PurgeServer(context.Context, gocql.UUID) error
@@ -32,13 +33,14 @@ type serverService struct {
 
 func NewServerService(cfg *Config) *serverService {
 	service := &serverService{
-		cfg:     cfg,
-		n10n:    NewNotificationService(cfg),
-		store:   &cfg.db.session,
-		users:   &cfg.db.session,
-		members: &cfg.db.session,
-		mods:    &cfg.db.session,
-		cleanup: &cfg.db.session,
+		cfg:      cfg,
+		n10n:     NewNotificationService(cfg),
+		store:    &cfg.db.session,
+		users:    &cfg.db.session,
+		members:  &cfg.db.session,
+		mods:     &cfg.db.session,
+		channels: &cfg.db.session,
+		cleanup:  &cfg.db.session,
 	}
 	if cfg.brokerURI != "" {
 		service.broker = rabbitDurableBroker{uri: cfg.brokerURI}
