@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/gocql/gocql"
-	"github.com/tobib-dev/frnkstn/api/messaging"
+	"github.com/tobib-dev/frnkstn/api/internal/messaging"
 )
 
 const (

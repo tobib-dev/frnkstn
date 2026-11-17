@@ -10,9 +10,9 @@ import (
 
 	"github.com/gocql/gocql"
 	ntfnV1 "github.com/tobib-dev/frnkstn-proto/notifications/v1"
-	"github.com/tobib-dev/frnkstn/api/auth"
-	"github.com/tobib-dev/frnkstn/api/db"
-	"github.com/tobib-dev/frnkstn/api/messaging"
+	"github.com/tobib-dev/frnkstn/api/internal/auth"
+	"github.com/tobib-dev/frnkstn/api/internal/db"
+	"github.com/tobib-dev/frnkstn/api/internal/messaging"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

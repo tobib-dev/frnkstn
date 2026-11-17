@@ -8,8 +8,8 @@ import (
 
 	"github.com/gocql/gocql"
 	sessionsV1 "github.com/tobib-dev/frnkstn-proto/sessions/v1"
-	"github.com/tobib-dev/frnkstn/api/auth"
-	"github.com/tobib-dev/frnkstn/api/db"
+	"github.com/tobib-dev/frnkstn/api/internal/auth"
+	"github.com/tobib-dev/frnkstn/api/internal/db"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

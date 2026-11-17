@@ -47,7 +47,7 @@ prompt. `CreateUser` generates a local user ID, and `CreateSession` receives
 that ID after the account exists. User lookup and creation are internal RPCs
 that trust the GitHub identity supplied by the SSH server.
 
-Apply `api/db/migrations/001_users_by_github_id.cql` to the existing ScyllaDB
+Apply `api/internal/db/migrations/001_users_by_github_id.cql` to the existing ScyllaDB
 keyspace before running this flow. Account creation uses `IF NOT EXISTS` on
 GitHub ID so retries keep the same local account. Existing accounts need a
 GitHub-ID mapping before they can be recognized by this lookup.

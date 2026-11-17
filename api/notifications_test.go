@@ -9,7 +9,7 @@ import (
 
 	"github.com/gocql/gocql"
 	ntfnV1 "github.com/tobib-dev/frnkstn-proto/notifications/v1"
-	"github.com/tobib-dev/frnkstn/api/db"
+	"github.com/tobib-dev/frnkstn/api/internal/db"
 	"google.golang.org/grpc/metadata"
 )
 

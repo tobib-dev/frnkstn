@@ -10,7 +10,7 @@ import (
 	"github.com/gocql/gocql"
 	friendsv1 "github.com/tobib-dev/frnkstn-proto/friends/v1"
 	ntfnV1 "github.com/tobib-dev/frnkstn-proto/notifications/v1"
-	"github.com/tobib-dev/frnkstn/api/db"
+	"github.com/tobib-dev/frnkstn/api/internal/db"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"

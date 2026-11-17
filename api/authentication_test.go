@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/gocql/gocql"
-	"github.com/tobib-dev/frnkstn/api/auth"
+	"github.com/tobib-dev/frnkstn/api/internal/auth"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"

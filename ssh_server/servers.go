@@ -30,6 +30,10 @@ const (
 	serverModDetails
 	serverPromoteConfirmation
 	serverDemoteConfirmation
+	serverChannels
+	serverCreateChannel
+	serverEditChannel
+	serverDeleteChannelConfirmation
 )
 
 type serverOperation int
@@ -51,6 +55,10 @@ const (
 	getMod
 	addMod
 	deleteMod
+	listChannels
+	addChannel
+	editChannel
+	deleteChannel
 )
 
 type serverResultMsg struct {
@@ -59,6 +67,7 @@ type serverResultMsg struct {
 	item      *serversv1.ServerItem
 	members   []*serversv1.MemberItem
 	mods      []*serversv1.ModItem
+	channels  []*serversv1.ChannelItem
 	mod       *serversv1.ModItem
 	friends   []*friendsv1.GetFriendsItem
 	err       error
@@ -78,6 +87,8 @@ type serversModel struct {
 	mods             []*serversv1.ModItem
 	modSelected      int
 	mod              *serversv1.ModItem
+	channels         []*serversv1.ChannelItem
+	channelSelected  int
 	friends          []*friendsv1.GetFriendsItem
 	friendSelected   int
 	notice           string
@@ -141,6 +152,43 @@ func (m serversModel) request(operation serverOperation, item *serversv1.ServerI
 			}
 		case deleteServer:
 			_, result.err = client.DeleteServer(ctx, &serversv1.DeleteServerRequest{ServerId: item.GetServerId()})
+		case listChannels:
+			response, err := client.GetChannels(ctx, &serversv1.GetChannelsRequest{ServerId: m.item.GetServerId()})
+			result.err = err
+			if err == nil {
+				result.channels = response.GetItems()
+			}
+		case addChannel:
+			response, err := client.AddChannel(ctx, &serversv1.AddChannelRequest{ServerId: m.item.GetServerId(), ChannelName: strings.TrimSpace(m.name.Value())})
+			result.err = err
+			if err == nil {
+				if response.GetItem() == nil {
+					result.err = status.Error(codes.Internal, "channel response is missing its item")
+					break
+				}
+				result.channels = append(m.channels, response.GetItem())
+			}
+		case editChannel:
+			channel := &serversv1.ChannelItem{
+				ServerId: m.item.GetServerId(), ChannelId: m.channels[m.channelSelected].GetChannelId(),
+				ChannelName: strings.TrimSpace(m.name.Value()),
+			}
+			response, err := client.EditChannel(ctx, &serversv1.EditChannelRequest{Item: channel})
+			result.err = err
+			if err == nil {
+				if response.GetItem() == nil {
+					result.err = status.Error(codes.Internal, "channel response is missing its item")
+					break
+				}
+				result.channels = append([]*serversv1.ChannelItem(nil), m.channels...)
+				result.channels[m.channelSelected] = response.GetItem()
+			}
+		case deleteChannel:
+			channel := m.channels[m.channelSelected]
+			_, result.err = client.DeleteChannel(ctx, &serversv1.DeleteChannelRequest{ServerId: channel.GetServerId(), ChannelId: channel.GetChannelId()})
+			if result.err == nil {
+				result.channels = append(append([]*serversv1.ChannelItem(nil), m.channels[:m.channelSelected]...), m.channels[m.channelSelected+1:]...)
+			}
 		case listFriends:
 			response, err := friendsv1.NewFriendServiceClient(conn).GetFriends(ctx, &friendsv1.GetFriendsRequest{})
 			result.err = err
@@ -238,6 +286,8 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 				}
 			}
 			m.item, m.page, m.selected = nil, serversList, 0
+		case listChannels, addChannel, editChannel, deleteChannel:
+			m.channels, m.page, m.channelSelected = result.channels, serverChannels, 0
 		}
 		return m, nil
 	}
@@ -247,13 +297,17 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 	key, isKey := msg.(tea.KeyPressMsg)
 	if isKey && key.String() == "esc" {
 		m.errorText = ""
-		if m.page == serverRemoveConfirmation || m.page == serverPromoteConfirmation {
+		if m.page == serverCreateChannel || m.page == serverEditChannel || m.page == serverDeleteChannelConfirmation {
+			m.page = serverChannels
+		} else if m.page == serverRemoveConfirmation || m.page == serverPromoteConfirmation {
 			m.page = serverMembers
 		} else if m.page == serverDemoteConfirmation {
 			m.page = serverModDetails
 		} else if m.page == serverModDetails {
 			m.page = serverMods
 		} else if m.page == serverMods {
+			m.page = serverDetails
+		} else if m.page == serverChannels {
 			m.page = serverDetails
 		} else if m.page == serverJoinConfirmation {
 			m.page = serverJoin
@@ -271,7 +325,7 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 	if updated, cmd, handled := m.updateMembers(msg); handled {
 		return updated, cmd
 	}
-	if m.page == serverCreate || m.page == serverEdit {
+	if m.page == serverCreate || m.page == serverEdit || m.page == serverCreateChannel || m.page == serverEditChannel {
 		if isKey {
 			switch key.String() {
 			case "tab", "shift+tab":
@@ -286,7 +340,21 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 				name := strings.TrimSpace(m.name.Value())
 				if name == "" {
 					m.errorText = "Server name is required."
+					if m.page == serverCreateChannel || m.page == serverEditChannel {
+						m.errorText = "Channel name is required."
+					}
 					return m, nil
+				}
+				if m.page == serverCreateChannel || m.page == serverEditChannel {
+					if m.item.Owner != m.userID {
+						return m, nil
+					}
+					op := addChannel
+					if m.page == serverEditChannel {
+						op = editChannel
+					}
+					m.busy, m.errorText = true, ""
+					return m, m.request(op, nil)
 				}
 				item := &serversv1.ServerItem{ServerName: name, ServerBio: strings.TrimSpace(m.bio.Value())}
 				op := createServer
@@ -354,6 +422,9 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 		case "m":
 			m.busy = true
 			return m, m.request(listMembers, nil)
+		case "c":
+			m.busy, m.page = true, serverChannels
+			return m, m.request(listChannels, nil)
 		case "l":
 			if m.item.Owner != m.userID {
 				m.page = serverLeaveConfirmation
@@ -379,6 +450,46 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 		}
 		if key.String() == "n" {
 			m.page = serverDetails
+		}
+	case serverChannels:
+		switch key.String() {
+		case "up", "k":
+			if m.channelSelected > 0 {
+				m.channelSelected--
+			}
+		case "down", "j":
+			if m.channelSelected < len(m.channels)-1 {
+				m.channelSelected++
+			}
+		case "r":
+			m.busy = true
+			return m, m.request(listChannels, nil)
+		case "n":
+			if m.item.Owner == m.userID {
+				m.name.SetValue("")
+				m.page = serverCreateChannel
+				return m, m.name.Focus()
+			}
+		case "e":
+			if m.item.Owner == m.userID && len(m.channels) > 0 {
+				m.name.SetValue(m.channels[m.channelSelected].GetChannelName())
+				m.page = serverEditChannel
+				return m, m.name.Focus()
+			}
+		case "d":
+			if m.item.Owner == m.userID && len(m.channels) > 0 {
+				m.page = serverDeleteChannelConfirmation
+			}
+		}
+	case serverDeleteChannelConfirmation:
+		switch key.String() {
+		case "y":
+			if m.item.Owner == m.userID && len(m.channels) > 0 {
+				m.busy = true
+				return m, m.request(deleteChannel, nil)
+			}
+		case "n":
+			m.page = serverChannels
 		}
 	}
 	return m, nil
@@ -414,12 +525,40 @@ func (m serversModel) View() string {
 			b.WriteString("\n\ne edit · d delete")
 		}
 		b.WriteString("\ni invite · m members · o moderators")
+		b.WriteString(" · c channels")
 		if m.item.Owner != m.userID {
 			b.WriteString(" · l leave")
 		}
 		b.WriteString("\nEsc server list")
 	case serverDeleteConfirmation:
 		b.WriteString("Delete " + m.item.ServerName + "?\n\ny confirm · n cancel · Esc cancel")
+	case serverChannels:
+		b.WriteString("#" + m.item.ServerName + " channels\n\n")
+		if len(m.channels) == 0 {
+			b.WriteString("No channels yet.\n")
+		}
+		for i, channel := range m.channels {
+			if i == m.channelSelected {
+				b.WriteString("> ")
+			} else {
+				b.WriteString("  ")
+			}
+			b.WriteString("#" + channel.GetChannelName() + "\n")
+		}
+		b.WriteString("\n↑/↓ select · r refresh")
+		if m.item.Owner == m.userID {
+			b.WriteString(" · n create · e rename · d delete")
+		}
+		b.WriteString(" · Esc server")
+	case serverCreateChannel, serverEditChannel:
+		if m.page == serverCreateChannel {
+			b.WriteString("Create channel\n\n")
+		} else {
+			b.WriteString("Rename channel\n\n")
+		}
+		b.WriteString(m.name.View() + "\n\nEnter save · Esc cancel")
+	case serverDeleteChannelConfirmation:
+		b.WriteString("Delete #" + m.channels[m.channelSelected].GetChannelName() + "?\n\ny confirm · n cancel · Esc cancel")
 	case serverMods, serverModDetails, serverPromoteConfirmation, serverDemoteConfirmation:
 		b.WriteString(m.modsView())
 	default:
