@@ -26,16 +26,8 @@ func ValidateFilters(f Filters) error {
 	return nil
 }
 
-func (f Filters) limit() int {
-	return f.PageSize
-}
-
-func (f Filters) offset() int {
-	return (f.Page - 1) * f.PageSize
-}
-
-func (f Filters) sortColumn() string {
-	return strings.TrimPrefix(f.Sort, "-")
+func (f Filters) limit() uint {
+	return uint(f.PageSize)
 }
 
 func (f Filters) sortDirection() string {

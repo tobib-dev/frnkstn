@@ -118,6 +118,13 @@ func newHomeModel(width, height int) homeModel {
 func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case notificationsPolledMsg:
+		items := make([]notificationItem, 0, len(msg.items))
+		for _, item := range msg.items {
+			if item.id() != "" {
+				items = append(items, item)
+			}
+		}
+		msg.items = items
 		hasNew := hasNewNotification(msg.items, m.notificationItems)
 		m.notificationItems = msg.items
 		m.setNotificationCounters(msg.items)
