@@ -13,6 +13,7 @@ import (
 type DMStore interface {
 	SendMessage(context.Context, DM) error
 	GetMessages(context.Context, gocql.UUID) ([]DM, error)
+	GetMessagesPage(context.Context, gocql.UUID, gocql.UUID, uint) ([]DM, error)
 	GetMessagesByUser(context.Context, gocql.UUID) ([]DMMetadata, error)
 	GetMessage(context.Context, gocql.UUID, gocql.UUID) (DM, error)
 	GetMessageByID(context.Context, gocql.UUID) (DM, error)
@@ -246,6 +247,28 @@ func (db *DB) GetMessages(ctx context.Context, id gocql.UUID) ([]DM, error) {
 	if err := db.Session.Query(dmTable.Select()).
 		WithContext(ctx).
 		BindMap(qb.M{"id": id}).
+		SelectRelease(&messages); err != nil {
+		return nil, err
+	}
+	return messages, nil
+}
+
+func (db *DB) GetMessagesPage(
+	ctx context.Context,
+	id, beforeMessageID gocql.UUID,
+	limit uint,
+) ([]DM, error) {
+	query := qb.Select(dmMetadata.Name).Where(qb.Eq("id"))
+	params := qb.M{"id": id}
+	if beforeMessageID != (gocql.UUID{}) {
+		query = query.Where(qb.Lt("message_id"))
+		params["message_id"] = beforeMessageID
+	}
+	stmt, names := query.Limit(limit).ToCql()
+	messages := []DM{}
+	if err := db.Session.Query(stmt, names).
+		WithContext(ctx).
+		BindMap(params).
 		SelectRelease(&messages); err != nil {
 		return nil, err
 	}

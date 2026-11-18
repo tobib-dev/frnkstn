@@ -27,6 +27,8 @@ type directMessageService struct {
 	dmsV1.UnimplementedDMServiceServer
 }
 
+const defaultDMPageSize = 50
+
 func NewDMService(cfg *Config) *directMessageService {
 	return &directMessageService{
 		cfg:     cfg,
@@ -234,19 +236,43 @@ func (s *directMessageService) GetMessages(
 	if err != nil {
 		return nil, err
 	}
-	logger := s.cfg.logger.With("location", "GetMessages", "dm_id", dmID.String())
+	logger := s.cfg.logger.With(
+		"location", "GetMessages", "dm_id", dmID.String(), "user_id", userID.String(),
+	)
 	if err := s.authorizeConversation(ctx, userID, dmID); err != nil {
 		return nil, err
 	}
 
-	messages, err := s.store.GetMessages(ctx, dmID)
+	pageSize := int(req.GetPageSize())
+	if pageSize == 0 {
+		pageSize = defaultDMPageSize
+	}
+	if pageSize < 1 || pageSize > 100 {
+		return nil, status.Error(codes.InvalidArgument, "page size must be between 1 and 100")
+	}
+	logger = logger.With("page_size", pageSize)
+	var beforeMessageID gocql.UUID
+	if req.GetPageToken() != "" {
+		beforeMessageID, err = parseID(req.GetPageToken(), "page token")
+		if err != nil {
+			return nil, err
+		}
+	}
+	messages, err := s.store.GetMessagesPage(ctx, dmID, beforeMessageID, uint(pageSize+1))
 	if err != nil {
 		logger.Error("failed to get messages", "error", err)
 		return nil, status.Error(codes.Internal, "could not get messages")
 	}
 
+	var nextPageToken string
+	if len(messages) > pageSize {
+		nextPageToken = messages[pageSize-1].MessageID.String()
+		messages = messages[:pageSize]
+	}
 	logger.Info("messages retrieved", "count", len(messages))
-	return &dmsV1.GetMessagesResponse{Items: messageItems(messages)}, nil
+	return &dmsV1.GetMessagesResponse{
+		Items: messageItems(messages), NextPageToken: nextPageToken,
+	}, nil
 }
 
 func (s *directMessageService) MarkMessagesRead(
