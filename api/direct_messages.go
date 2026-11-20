@@ -11,6 +11,7 @@ import (
 	dmsV1 "github.com/tobib-dev/frnkstn-proto/dms/v1"
 	ntfnV1 "github.com/tobib-dev/frnkstn-proto/notifications/v1"
 	"github.com/tobib-dev/frnkstn/api/internal/auth"
+	"github.com/tobib-dev/frnkstn/api/internal/data"
 	"github.com/tobib-dev/frnkstn/api/internal/db"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -247,10 +248,11 @@ func (s *directMessageService) GetMessages(
 	if pageSize == 0 {
 		pageSize = defaultDMPageSize
 	}
-	if pageSize < 1 || pageSize > 100 {
-		return nil, status.Error(codes.InvalidArgument, "page size must be between 1 and 100")
+	filters := data.Filters{Page: 1, PageSize: pageSize, Sort: "-message_id", SortSafeList: []string{"-message_id"}}
+	if err := data.ValidateFilters(filters); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	logger = logger.With("page_size", pageSize)
+	logger = logger.With("page_size", filters.Limit())
 	var beforeMessageID gocql.UUID
 	if req.GetPageToken() != "" {
 		beforeMessageID, err = parseID(req.GetPageToken(), "page token")
@@ -258,7 +260,7 @@ func (s *directMessageService) GetMessages(
 			return nil, err
 		}
 	}
-	messages, err := s.store.GetMessagesPage(ctx, dmID, beforeMessageID, uint(pageSize+1))
+	messages, err := s.store.GetMessagesPage(ctx, dmID, beforeMessageID, filters.Limit()+1)
 	if err != nil {
 		logger.Error("failed to get messages", "error", err)
 		return nil, status.Error(codes.Internal, "could not get messages")

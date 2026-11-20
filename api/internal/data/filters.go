@@ -26,11 +26,11 @@ func ValidateFilters(f Filters) error {
 	return nil
 }
 
-func (f Filters) limit() uint {
+func (f Filters) Limit() uint {
 	return uint(f.PageSize)
 }
 
-func (f Filters) sortDirection() string {
+func (f Filters) SortDirection() string {
 	if strings.HasPrefix(f.Sort, "-") {
 		return "DESC"
 	}

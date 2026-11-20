@@ -20,6 +20,7 @@ type serverService struct {
 	members  db.ServerMemberStore
 	mods     db.ServerModsStore
 	channels db.ChannelStore
+	messages db.ChannelMessageStore
 	cleanup  interface {
 		UpdateServerLookups(context.Context, gocql.UUID) error
 		MarkServerLookupsDeleted(context.Context, gocql.UUID) error
@@ -31,7 +32,7 @@ type serverService struct {
 	servV1.UnimplementedServerServiceServer
 }
 
-func NewServerService(cfg *Config) *serverService {
+func NewServerService(cfg *Config, messages db.ChannelMessageStore) *serverService {
 	service := &serverService{
 		cfg:      cfg,
 		n10n:     NewNotificationService(cfg),
@@ -40,6 +41,7 @@ func NewServerService(cfg *Config) *serverService {
 		members:  &cfg.db.session,
 		mods:     &cfg.db.session,
 		channels: &cfg.db.session,
+		messages: messages,
 		cleanup:  &cfg.db.session,
 	}
 	if cfg.brokerURI != "" {

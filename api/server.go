@@ -117,7 +117,8 @@ func main() {
 		logger.Error("failed to subscribe to message notifications", "error", err)
 	}
 	directMessageService := NewDMService(&cfg)
-	serverService := NewServerService(&cfg)
+	serverMessages := db
+	serverService := NewServerService(&cfg, serverMessages)
 	cleanupCtx, cancelCleanup := context.WithCancel(context.Background())
 	defer cancelCleanup()
 	if err := serverService.StartServerConsumer(cleanupCtx); err != nil {

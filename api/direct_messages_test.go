@@ -50,6 +50,12 @@ func (s *testDMStore) GetMessages(_ context.Context, dmID gocql.UUID) ([]db.DM, 
 	return s.messages, nil
 }
 
+func (s *testDMStore) GetMessagesPage(
+	ctx context.Context, dmID, _ gocql.UUID, _ uint,
+) ([]db.DM, error) {
+	return s.GetMessages(ctx, dmID)
+}
+
 func TestMarkMessagesReadOnlyAllowsReceiver(t *testing.T) {
 	dmID, messageID, receiverID := gocql.TimeUUID(), gocql.TimeUUID(), gocql.TimeUUID()
 	message := db.DM{ID: dmID, MessageID: messageID, ReceiverID: receiverID}
