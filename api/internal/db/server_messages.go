@@ -2,13 +2,14 @@ package db
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/gocql/gocql"
 	"github.com/scylladb/gocqlx/v3/qb"
 	"github.com/scylladb/gocqlx/v3/table"
 )
 
-type ChannelMessages interface {
+type ChannelMessageStore interface {
 	PostChannelMessage(context.Context, ChannelMessage) (ChannelMessage, error)
 	GetChannelMessage(context.Context, gocql.UUID, gocql.UUID, gocql.UUID) (ChannelMessage, error)
 	GetChannelMessages(context.Context, GetChannelMsgsParams) ([]ChannelMessage, error)
@@ -16,21 +17,25 @@ type ChannelMessages interface {
 	DeleteChannelMessage(context.Context, gocql.UUID, gocql.UUID, gocql.UUID) error
 }
 
+var _ ChannelMessageStore = (*DB)(nil)
+
 type ChannelMessage struct {
-	ServerID  gocql.UUID
-	ChannelID gocql.UUID
-	MessageID gocql.UUID
-	AuthorID  gocql.UUID
-	Content   string
-	Edited    bool
+	ServerID   gocql.UUID
+	ChannelID  gocql.UUID
+	MessageID  gocql.UUID
+	AuthorID   gocql.UUID
+	AuthorName *string
+	Content    string
+	Edited     bool
 }
 
 type EditChannelMsgParams struct {
-	ServerID  gocql.UUID
-	ChannelID gocql.UUID
-	MessageID gocql.UUID
-	AuthorID  gocql.UUID
-	Content   string
+	ServerID   gocql.UUID
+	ChannelID  gocql.UUID
+	MessageID  gocql.UUID
+	AuthorID   gocql.UUID
+	AuthorName string
+	Content    string
 }
 
 type GetChannelMsgsParams struct {
@@ -43,7 +48,7 @@ type GetChannelMsgsParams struct {
 
 var channelMsgs = table.New(table.Metadata{
 	Name:    "channel_messages",
-	Columns: []string{"server_id", "channel_id", "message_id", "author_id", "content", "edited"},
+	Columns: []string{"server_id", "channel_id", "message_id", "author_id", "author_name", "content", "edited"},
 	PartKey: []string{"server_id", "channel_id"},
 	SortKey: []string{"message_id"},
 })
@@ -90,40 +95,41 @@ func (db *DB) GetChannelMessages(
 	args GetChannelMsgsParams,
 ) ([]ChannelMessage, error) {
 	msgs := []ChannelMessage{}
-	var (
-		stmt  string
-		names []string
+	query := qb.Select(channelMsgs.Name()).Where(
+		qb.Eq("server_id"),
+		qb.Eq("channel_id"),
 	)
-
 	switch args.SortDirection {
 	case "ASC":
-		stmt, names = qb.Select(channelMsgs.Name()).
-			Where(
-				qb.Eq("server_id"),
-				qb.Eq("channel_id"),
-				qb.Gt("message_id")).
-			OrderBy("message_id", qb.ASC).
-			Limit(uint(args.Limit)).
-			ToCql()
+		if args.LastMessageID != (gocql.UUID{}) {
+			query = query.Where(qb.Gt("message_id"))
+		}
+		query = query.OrderBy("message_id", qb.ASC)
 	case "DESC":
-		stmt, names = qb.Select(channelMsgs.Name()).
-			Where(
-				qb.Eq("server_id"),
-				qb.Eq("channel_id"),
-				qb.Lt("message_id")).
-			OrderBy("message_id", qb.DESC).
-			Limit(uint(args.Limit)).
-			ToCql()
+		if args.LastMessageID != (gocql.UUID{}) {
+			query = query.Where(qb.Lt("message_id"))
+		}
+		query = query.OrderBy("message_id", qb.DESC)
+	default:
+		return nil,
+			fmt.Errorf(
+				"invalid message sort direction %q",
+				args.SortDirection)
+	}
+	stmt, names := query.Limit(
+		uint(args.Limit)).ToCql()
+	params := qb.M{
+		"server_id":  args.ServerID,
+		"channel_id": args.ChannelID,
+	}
+	if args.LastMessageID != (gocql.UUID{}) {
+		params["message_id"] = args.LastMessageID
 	}
 
 	if err := db.Session.Query(
 		stmt, names).
 		WithContext(ctx).
-		BindMap(qb.M{
-			"server_id":  args.ServerID,
-			"channel_id": args.ChannelID,
-			"message_id": args.LastMessageID,
-		}).
+		BindMap(params).
 		SelectRelease(&msgs); err != nil {
 		return nil, err
 	}
@@ -134,14 +140,12 @@ func (db *DB) EditChannelMessage(
 	ctx context.Context,
 	args EditChannelMsgParams,
 ) (ChannelMessage, error) {
-	stmt, names := qb.Update(channelMsgs.Name()).
+	applied, err := qb.Update(channelMsgs.Name()).
 		Set("content", "edited").
 		Where(qb.Eq("server_id"),
 			qb.Eq("channel_id"),
 			qb.Eq("message_id"),
-		).ToCql()
-
-	if err := db.Session.Query(stmt, names).
+		).Existing().Query(*db.Session).
 		WithContext(ctx).
 		BindMap(qb.M{
 			"server_id":  args.ServerID,
@@ -149,16 +153,21 @@ func (db *DB) EditChannelMessage(
 			"message_id": args.MessageID,
 			"content":    args.Content,
 			"edited":     true,
-		}).ExecRelease(); err != nil {
+		}).ExecCASRelease()
+	if err != nil {
 		return ChannelMessage{}, err
 	}
+	if !applied {
+		return ChannelMessage{}, gocql.ErrNotFound
+	}
 	return ChannelMessage{
-		ServerID:  args.ServerID,
-		ChannelID: args.ChannelID,
-		MessageID: args.MessageID,
-		AuthorID:  args.AuthorID,
-		Content:   args.Content,
-		Edited:    true,
+		ServerID:   args.ServerID,
+		ChannelID:  args.ChannelID,
+		MessageID:  args.MessageID,
+		AuthorID:   args.AuthorID,
+		AuthorName: &args.AuthorName,
+		Content:    args.Content,
+		Edited:     true,
 	}, nil
 }
 
