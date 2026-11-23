@@ -34,6 +34,10 @@ const (
 	serverCreateChannel
 	serverEditChannel
 	serverDeleteChannelConfirmation
+	serverChannelMessages
+	serverComposeMessage
+	serverEditMessage
+	serverDeleteMessageConfirmation
 )
 
 type serverOperation int
@@ -59,6 +63,11 @@ const (
 	addChannel
 	editChannel
 	deleteChannel
+	listChannelMessages
+	loadOlderChannelMessages
+	postChannelMessage
+	editChannelMessage
+	deleteChannelMessage
 )
 
 type serverResultMsg struct {
@@ -68,6 +77,8 @@ type serverResultMsg struct {
 	members   []*serversv1.MemberItem
 	mods      []*serversv1.ModItem
 	channels  []*serversv1.ChannelItem
+	messages  []*serversv1.MessageItem
+	nextToken string
 	mod       *serversv1.ModItem
 	friends   []*friendsv1.GetFriendsItem
 	err       error
@@ -89,6 +100,10 @@ type serversModel struct {
 	mod              *serversv1.ModItem
 	channels         []*serversv1.ChannelItem
 	channelSelected  int
+	messages         []*serversv1.MessageItem
+	messageSelected  int
+	nextPageToken    string
+	messageInput     textinput.Model
 	friends          []*friendsv1.GetFriendsItem
 	friendSelected   int
 	notice           string
@@ -101,12 +116,15 @@ func newServersModel(userID string, accessToken bearerToken, grpcPort string) se
 	name, bio := textinput.New(), textinput.New()
 	input := textinput.New()
 	input.SetVirtualCursor(true)
+	messageInput := textinput.New()
+	messageInput.Prompt = "Message: "
+	messageInput.SetVirtualCursor(true)
 	name.Prompt, bio.Prompt = "Name: ", "Bio: "
 	name.SetVirtualCursor(true)
 	bio.SetVirtualCursor(true)
 	return serversModel{
 		userID: userID, accessToken: accessToken, grpcPort: grpcPort,
-		name: name, bio: bio, input: input, busy: true,
+		name: name, bio: bio, input: input, messageInput: messageInput, busy: true,
 	}
 }
 
@@ -189,6 +207,61 @@ func (m serversModel) request(operation serverOperation, item *serversv1.ServerI
 			if result.err == nil {
 				result.channels = append(append([]*serversv1.ChannelItem(nil), m.channels[:m.channelSelected]...), m.channels[m.channelSelected+1:]...)
 			}
+		case listChannelMessages, loadOlderChannelMessages:
+			channel := m.channels[m.channelSelected]
+			response, err := client.GetMessages(ctx, &serversv1.GetMessagesRequest{
+				ServerId: m.item.GetServerId(), ChannelId: channel.GetChannelId(),
+				PageSize: 50, PageToken: m.nextPageToken,
+			})
+			result.err = err
+			if err == nil {
+				result.messages = response.GetItems()
+				result.nextToken = response.GetNextPageToken()
+				if operation == loadOlderChannelMessages {
+					result.messages = append(append([]*serversv1.MessageItem(nil), m.messages...), result.messages...)
+				}
+			}
+		case postChannelMessage:
+			channel := m.channels[m.channelSelected]
+			response, err := client.PostMessage(ctx, &serversv1.PostMessageRequest{
+				ServerId: m.item.GetServerId(), ChannelId: channel.GetChannelId(),
+				AuthorId: m.userID, Content: strings.TrimSpace(m.messageInput.Value()),
+			})
+			result.err = err
+			if err == nil {
+				if response.GetItem() == nil {
+					result.err = status.Error(codes.Internal, "message response is missing its item")
+					break
+				}
+				result.messages = append([]*serversv1.MessageItem{response.GetItem()}, m.messages...)
+				result.nextToken = m.nextPageToken
+			}
+		case editChannelMessage:
+			message := m.messages[m.messageSelected]
+			response, err := client.EditMessage(ctx, &serversv1.EditMessageRequest{
+				ServerId: m.item.GetServerId(), ChannelId: message.GetChannelId(),
+				MessageId: message.GetMessageId(), Content: strings.TrimSpace(m.messageInput.Value()),
+			})
+			result.err = err
+			if err == nil {
+				if response.GetItem() == nil {
+					result.err = status.Error(codes.Internal, "message response is missing its item")
+					break
+				}
+				result.messages = append([]*serversv1.MessageItem(nil), m.messages...)
+				result.messages[m.messageSelected] = response.GetItem()
+				result.nextToken = m.nextPageToken
+			}
+		case deleteChannelMessage:
+			message := m.messages[m.messageSelected]
+			_, result.err = client.DeleteMessage(ctx, &serversv1.DeleteMessageRequest{
+				ServerId: m.item.GetServerId(), ChannelId: message.GetChannelId(),
+				MessageId: message.GetMessageId(),
+			})
+			if result.err == nil {
+				result.messages = append(append([]*serversv1.MessageItem(nil), m.messages[:m.messageSelected]...), m.messages[m.messageSelected+1:]...)
+				result.nextToken = m.nextPageToken
+			}
 		case listFriends:
 			response, err := friendsv1.NewFriendServiceClient(conn).GetFriends(ctx, &friendsv1.GetFriendsRequest{})
 			result.err = err
@@ -226,6 +299,11 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 				m.errorText = "You do not have permission to perform this action."
 			case codes.NotFound:
 				m.errorText = "Server, member, moderator, or invitation was not found."
+				if result.operation == listChannelMessages || result.operation == loadOlderChannelMessages ||
+					result.operation == postChannelMessage || result.operation == editChannelMessage ||
+					result.operation == deleteChannelMessage {
+					m.errorText = "Channel or message was not found."
+				}
 			case codes.AlreadyExists:
 				m.errorText = "The user already belongs to this server."
 				if result.operation == addMod {
@@ -288,6 +366,22 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 			m.item, m.page, m.selected = nil, serversList, 0
 		case listChannels, addChannel, editChannel, deleteChannel:
 			m.channels, m.page, m.channelSelected = result.channels, serverChannels, 0
+		case listChannelMessages, loadOlderChannelMessages:
+			m.messages, m.nextPageToken, m.page = result.messages, result.nextToken, serverChannelMessages
+			if result.operation == listChannelMessages {
+				m.messageSelected = 0
+			}
+		case postChannelMessage, editChannelMessage, deleteChannelMessage:
+			m.messages, m.nextPageToken, m.page = result.messages, result.nextToken, serverChannelMessages
+			m.messageInput.SetValue("")
+			m.messageSelected = min(m.messageSelected, max(0, len(m.messages)-1))
+			if result.operation == postChannelMessage {
+				m.messageSelected, m.notice = 0, "Message sent."
+			} else if result.operation == editChannelMessage {
+				m.notice = "Message updated."
+			} else {
+				m.notice = "Message deleted."
+			}
 		}
 		return m, nil
 	}
@@ -297,7 +391,9 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 	key, isKey := msg.(tea.KeyPressMsg)
 	if isKey && key.String() == "esc" {
 		m.errorText = ""
-		if m.page == serverCreateChannel || m.page == serverEditChannel || m.page == serverDeleteChannelConfirmation {
+		if m.page == serverComposeMessage || m.page == serverEditMessage || m.page == serverDeleteMessageConfirmation {
+			m.page = serverChannelMessages
+		} else if m.page == serverCreateChannel || m.page == serverEditChannel || m.page == serverDeleteChannelConfirmation {
 			m.page = serverChannels
 		} else if m.page == serverRemoveConfirmation || m.page == serverPromoteConfirmation {
 			m.page = serverMembers
@@ -309,6 +405,8 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 			m.page = serverDetails
 		} else if m.page == serverChannels {
 			m.page = serverDetails
+		} else if m.page == serverChannelMessages {
+			m.page = serverChannels
 		} else if m.page == serverJoinConfirmation {
 			m.page = serverJoin
 		} else if m.page == serverEdit || m.page == serverDeleteConfirmation ||
@@ -324,6 +422,23 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 	}
 	if updated, cmd, handled := m.updateMembers(msg); handled {
 		return updated, cmd
+	}
+	if m.page == serverComposeMessage || m.page == serverEditMessage {
+		if isKey && key.String() == "enter" {
+			if strings.TrimSpace(m.messageInput.Value()) == "" {
+				m.errorText = "Message content is required."
+				return m, nil
+			}
+			operation := postChannelMessage
+			if m.page == serverEditMessage {
+				operation = editChannelMessage
+			}
+			m.busy, m.errorText, m.notice = true, "", ""
+			return m, m.request(operation, nil)
+		}
+		var cmd tea.Cmd
+		m.messageInput, cmd = m.messageInput.Update(msg)
+		return m, cmd
 	}
 	if m.page == serverCreate || m.page == serverEdit || m.page == serverCreateChannel || m.page == serverEditChannel {
 		if isKey {
@@ -480,6 +595,12 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 			if m.item.Owner == m.userID && len(m.channels) > 0 {
 				m.page = serverDeleteChannelConfirmation
 			}
+		case "enter":
+			if len(m.channels) > 0 {
+				m.messages, m.nextPageToken, m.messageSelected = nil, "", 0
+				m.page, m.busy = serverChannelMessages, true
+				return m, m.request(listChannelMessages, nil)
+			}
 		}
 	case serverDeleteChannelConfirmation:
 		switch key.String() {
@@ -490,6 +611,53 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 			}
 		case "n":
 			m.page = serverChannels
+		}
+	case serverChannelMessages:
+		switch key.String() {
+		case "up", "k":
+			if m.messageSelected > 0 {
+				m.messageSelected--
+			}
+		case "down", "j":
+			if m.messageSelected < len(m.messages)-1 {
+				m.messageSelected++
+			}
+		case "n":
+			m.messageInput.SetValue("")
+			m.notice, m.errorText = "", ""
+			m.page = serverComposeMessage
+			return m, m.messageInput.Focus()
+		case "e":
+			if len(m.messages) > 0 && m.messages[m.messageSelected].GetAuthorId() == m.userID {
+				m.messageInput.SetValue(m.messages[m.messageSelected].GetContent())
+				m.errorText = ""
+				m.page = serverEditMessage
+				return m, m.messageInput.Focus()
+			}
+		case "d":
+			if len(m.messages) > 0 && m.messages[m.messageSelected].GetAuthorId() == m.userID {
+				m.errorText = ""
+				m.page = serverDeleteMessageConfirmation
+			}
+		case "r":
+			m.messages, m.nextPageToken, m.messageSelected = nil, "", 0
+			m.busy = true
+			return m, m.request(listChannelMessages, nil)
+		case "o":
+			if m.nextPageToken != "" {
+				m.busy = true
+				return m, m.request(loadOlderChannelMessages, nil)
+			}
+		}
+	case serverDeleteMessageConfirmation:
+		switch key.String() {
+		case "y":
+			if len(m.messages) > 0 && m.messages[m.messageSelected].GetAuthorId() == m.userID {
+				m.busy = true
+				return m, m.request(deleteChannelMessage, nil)
+			}
+		case "n":
+			m.page = serverChannelMessages
 		}
 	}
 	return m, nil
@@ -545,7 +713,7 @@ func (m serversModel) View() string {
 			}
 			b.WriteString("#" + channel.GetChannelName() + "\n")
 		}
-		b.WriteString("\n↑/↓ select · r refresh")
+		b.WriteString("\n↑/↓ select · Enter messages · r refresh")
 		if m.item.Owner == m.userID {
 			b.WriteString(" · n create · e rename · d delete")
 		}
@@ -559,6 +727,45 @@ func (m serversModel) View() string {
 		b.WriteString(m.name.View() + "\n\nEnter save · Esc cancel")
 	case serverDeleteChannelConfirmation:
 		b.WriteString("Delete #" + m.channels[m.channelSelected].GetChannelName() + "?\n\ny confirm · n cancel · Esc cancel")
+	case serverChannelMessages:
+		channelName := m.channels[m.channelSelected].GetChannelName()
+		b.WriteString(m.item.GetServerName() + " · #" + channelName + "\n\n")
+		if len(m.messages) == 0 {
+			b.WriteString("No messages yet.\n")
+		}
+		for i, message := range m.messages {
+			if i == m.messageSelected {
+				b.WriteString("> ")
+			} else {
+				b.WriteString("  ")
+			}
+			author := message.GetAuthorUsername()
+			if author == "" {
+				author = "Unknown user"
+			}
+			b.WriteString(author + ": " + message.GetContent())
+			if message.GetEdited() {
+				b.WriteString(" (edited)")
+			}
+			b.WriteByte('\n')
+		}
+		b.WriteString("\n↑/↓ select · n send · r refresh")
+		if m.nextPageToken != "" {
+			b.WriteString(" · o older")
+		}
+		if len(m.messages) > 0 && m.messages[m.messageSelected].GetAuthorId() == m.userID {
+			b.WriteString(" · e edit · d delete")
+		}
+		b.WriteString(" · Esc channels")
+	case serverComposeMessage, serverEditMessage:
+		if m.page == serverComposeMessage {
+			b.WriteString("Send message\n\n")
+		} else {
+			b.WriteString("Edit message\n\n")
+		}
+		b.WriteString(m.messageInput.View() + "\n\nEnter save · Esc cancel")
+	case serverDeleteMessageConfirmation:
+		b.WriteString("Delete this message?\n\ny confirm · n cancel · Esc cancel")
 	case serverMods, serverModDetails, serverPromoteConfirmation, serverDemoteConfirmation:
 		b.WriteString(m.modsView())
 	default:
