@@ -10,10 +10,10 @@ import (
 )
 
 type ChannelMessageStore interface {
-	PostChannelMessage(context.Context, ChannelMessage) (ChannelMessage, error)
-	GetChannelMessage(context.Context, gocql.UUID, gocql.UUID, gocql.UUID) (ChannelMessage, error)
-	GetChannelMessages(context.Context, GetChannelMsgsParams) ([]ChannelMessage, error)
-	EditChannelMessage(context.Context, EditChannelMsgParams) (ChannelMessage, error)
+	PostChannelMessage(context.Context, ChannelMessage) (ChannelMessageResponse, error)
+	GetChannelMessage(context.Context, gocql.UUID, gocql.UUID, gocql.UUID) (ChannelMessageResponse, error)
+	GetChannelMessages(context.Context, GetChannelMsgsParams) ([]ChannelMessageResponse, error)
+	EditChannelMessage(context.Context, EditChannelMsgParams) (ChannelMessageResponse, error)
 	DeleteChannelMessage(context.Context, gocql.UUID, gocql.UUID, gocql.UUID) error
 }
 
@@ -27,6 +27,23 @@ type ChannelMessage struct {
 	AuthorName *string
 	Content    string
 	Edited     bool
+	Tags       []gocql.UUID `db:"tags"`
+}
+
+type TaggedUser struct {
+	ID   gocql.UUID
+	Name string
+}
+
+type ChannelMessageResponse struct {
+	ServerID    gocql.UUID
+	ChannelID   gocql.UUID
+	MessageID   gocql.UUID
+	AuthorID    gocql.UUID
+	AuthorName  *string
+	Content     string
+	Edited      bool
+	TaggedUsers []TaggedUser
 }
 
 type EditChannelMsgParams struct {
@@ -36,6 +53,7 @@ type EditChannelMsgParams struct {
 	AuthorID   gocql.UUID
 	AuthorName string
 	Content    string
+	Tags       []gocql.UUID `db:"tags"`
 }
 
 type GetChannelMsgsParams struct {
@@ -48,7 +66,7 @@ type GetChannelMsgsParams struct {
 
 var channelMsgs = table.New(table.Metadata{
 	Name:    "channel_messages",
-	Columns: []string{"server_id", "channel_id", "message_id", "author_id", "author_name", "content", "edited"},
+	Columns: []string{"server_id", "channel_id", "message_id", "author_id", "author_name", "content", "edited", "tags"},
 	PartKey: []string{"server_id", "channel_id"},
 	SortKey: []string{"message_id"},
 })
@@ -56,22 +74,27 @@ var channelMsgs = table.New(table.Metadata{
 func (db *DB) PostChannelMessage(
 	ctx context.Context,
 	msg ChannelMessage,
-) (ChannelMessage, error) {
+) (ChannelMessageResponse, error) {
 	if err := db.Session.Query(
 		channelMsgs.Insert(),
 	).WithContext(ctx).
 		BindStruct(&msg).
 		ExecRelease(); err != nil {
-		return ChannelMessage{}, err
+		return ChannelMessageResponse{}, err
 	}
-	return msg, nil
+
+	resp, err := messageResponse(ctx, db, msg)
+	if err != nil {
+		return ChannelMessageResponse{}, err
+	}
+	return resp, nil
 }
 
 func (db *DB) GetChannelMessage(
 	ctx context.Context,
 	serverID, channelID,
 	messageID gocql.UUID,
-) (ChannelMessage, error) {
+) (ChannelMessageResponse, error) {
 	msg := ChannelMessage{
 		ServerID:  serverID,
 		ChannelID: channelID,
@@ -84,16 +107,21 @@ func (db *DB) GetChannelMessage(
 		WithContext(ctx).
 		BindStruct(&msg).
 		GetRelease(&msg); err != nil {
-		return ChannelMessage{}, err
+		return ChannelMessageResponse{}, err
 	}
-	return msg, nil
+
+	resp, err := messageResponse(ctx, db, msg)
+	if err != nil {
+		return ChannelMessageResponse{}, err
+	}
+	return resp, nil
 }
 
 // Paginate get messages - pass pagination arguments
 func (db *DB) GetChannelMessages(
 	ctx context.Context,
 	args GetChannelMsgsParams,
-) ([]ChannelMessage, error) {
+) ([]ChannelMessageResponse, error) {
 	msgs := []ChannelMessage{}
 	query := qb.Select(channelMsgs.Name()).Where(
 		qb.Eq("server_id"),
@@ -133,15 +161,24 @@ func (db *DB) GetChannelMessages(
 		SelectRelease(&msgs); err != nil {
 		return nil, err
 	}
-	return msgs, nil
+
+	resp := make([]ChannelMessageResponse, len(msgs))
+	for i, msg := range msgs {
+		msgRes, err := messageResponse(ctx, db, msg)
+		if err != nil {
+			return []ChannelMessageResponse{}, err
+		}
+		resp[i] = msgRes
+	}
+	return resp, nil
 }
 
 func (db *DB) EditChannelMessage(
 	ctx context.Context,
 	args EditChannelMsgParams,
-) (ChannelMessage, error) {
+) (ChannelMessageResponse, error) {
 	applied, err := qb.Update(channelMsgs.Name()).
-		Set("content", "edited").
+		Set("content", "edited", "tags").
 		Where(qb.Eq("server_id"),
 			qb.Eq("channel_id"),
 			qb.Eq("message_id"),
@@ -153,22 +190,31 @@ func (db *DB) EditChannelMessage(
 			"message_id": args.MessageID,
 			"content":    args.Content,
 			"edited":     true,
+			"tags":       args.Tags,
 		}).ExecCASRelease()
 	if err != nil {
-		return ChannelMessage{}, err
+		return ChannelMessageResponse{}, err
 	}
 	if !applied {
-		return ChannelMessage{}, gocql.ErrNotFound
+		return ChannelMessageResponse{}, gocql.ErrNotFound
 	}
-	return ChannelMessage{
-		ServerID:   args.ServerID,
-		ChannelID:  args.ChannelID,
-		MessageID:  args.MessageID,
-		AuthorID:   args.AuthorID,
-		AuthorName: &args.AuthorName,
-		Content:    args.Content,
-		Edited:     true,
-	}, nil
+
+	resp, err := messageResponse(
+		ctx, db, ChannelMessage{
+			ServerID:   args.ServerID,
+			ChannelID:  args.ChannelID,
+			MessageID:  args.MessageID,
+			AuthorID:   args.AuthorID,
+			AuthorName: &args.AuthorName,
+			Content:    args.Content,
+			Edited:     true,
+			Tags:       args.Tags,
+		},
+	)
+	if err != nil {
+		return ChannelMessageResponse{}, err
+	}
+	return resp, nil
 }
 
 func (db *DB) DeleteChannelMessage(
@@ -195,4 +241,53 @@ func (db *DB) DeleteChannelMessage(
 	}
 
 	return nil
+}
+
+func resolveTaggedUsers(
+	ctx context.Context,
+	tags []gocql.UUID,
+	users UserStore,
+) ([]TaggedUser, error) {
+	taggedUsers := make([]TaggedUser, len(tags))
+	for i, userID := range tags {
+		user, err := users.GetUserByID(ctx, userID)
+		if err != nil {
+			return []TaggedUser{},
+				fmt.Errorf(
+					"error resolving tagged users: %w",
+					err)
+		}
+		taggedUsers[i] = TaggedUser{
+			ID:   user.ID,
+			Name: user.Username,
+		}
+	}
+	return taggedUsers, nil
+}
+
+func messageResponse(
+	ctx context.Context,
+	users UserStore,
+	msg ChannelMessage,
+) (ChannelMessageResponse, error) {
+	resp := ChannelMessageResponse{
+		ServerID:   msg.ServerID,
+		ChannelID:  msg.ChannelID,
+		MessageID:  msg.MessageID,
+		AuthorID:   msg.AuthorID,
+		AuthorName: msg.AuthorName,
+		Content:    msg.Content,
+		Edited:     msg.Edited,
+	}
+
+	if len(msg.Tags) != 0 {
+		taggedUsers, err := resolveTaggedUsers(
+			ctx, msg.Tags, users,
+		)
+		if err != nil {
+			return ChannelMessageResponse{}, err
+		}
+		resp.TaggedUsers = taggedUsers
+	}
+	return resp, nil
 }

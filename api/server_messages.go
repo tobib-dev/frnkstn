@@ -48,6 +48,10 @@ func (s *serverService) PostMessage(
 	if content == "" {
 		return nil, status.Error(codes.InvalidArgument, "message content is required")
 	}
+	tags, err := parseTaggedUserIDs(req.GetTaggedUserIds())
+	if err != nil {
+		return nil, err
+	}
 	if _, err := s.channels.GetChannel(ctx, serverID, channelID); err != nil {
 		return nil, s.channelError("get channel", err)
 	}
@@ -58,7 +62,7 @@ func (s *serverService) PostMessage(
 	}
 	message, err := s.messages.PostChannelMessage(ctx, db.ChannelMessage{
 		ServerID: serverID, ChannelID: channelID, MessageID: gocql.TimeUUID(),
-		AuthorID: userID, AuthorName: &author.Username, Content: content,
+		AuthorID: userID, AuthorName: &author.Username, Content: content, Tags: tags,
 	})
 	if err != nil {
 		return nil, s.serverMessageError("post message", err)
@@ -186,9 +190,14 @@ func (s *serverService) EditMessage(
 	if content == "" {
 		return nil, status.Error(codes.InvalidArgument, "message content is required")
 	}
+	tags, err := parseTaggedUserIDs(req.GetTaggedUserIds())
+	if err != nil {
+		return nil, err
+	}
 	message, err = s.messages.EditChannelMessage(ctx, db.EditChannelMsgParams{
 		ServerID: serverID, ChannelID: channelID, MessageID: messageID,
 		AuthorID: userID, AuthorName: serverMessageAuthorName(message), Content: content,
+		Tags: tags,
 	})
 	if err != nil {
 		return nil, s.serverMessageError("edit message", err)
@@ -242,27 +251,48 @@ func (s *serverService) serverMessageError(operation string, err error) error {
 	return status.Error(codes.Internal, "could not "+operation)
 }
 
-func serverMessageItem(message db.ChannelMessage) *serversv1.MessageItem {
-	return serverMessageItems([]db.ChannelMessage{message})[0]
+func serverMessageItem(message db.ChannelMessageResponse) *serversv1.MessageItem {
+	return serverMessageItems([]db.ChannelMessageResponse{message})[0]
 }
 
-func serverMessageItems(messages []db.ChannelMessage) []*serversv1.MessageItem {
+func serverMessageItems(messages []db.ChannelMessageResponse) []*serversv1.MessageItem {
 	items := make([]*serversv1.MessageItem, len(messages))
 	for i, message := range messages {
 		items[i] = &serversv1.MessageItem{
 			ServerId: message.ServerID.String(), ChannelId: message.ChannelID.String(),
 			MessageId: message.MessageID.String(), AuthorId: message.AuthorID.String(),
 			Content: message.Content, Edited: message.Edited, AuthorUsername: serverMessageAuthorName(message),
+			TaggedUsers: taggedUserItems(message.TaggedUsers),
 		}
 	}
 	return items
 }
 
-func serverMessageAuthorName(message db.ChannelMessage) string {
+func serverMessageAuthorName(message db.ChannelMessageResponse) string {
 	if message.AuthorName == nil {
 		return ""
 	}
 	return *message.AuthorName
+}
+
+func taggedUserItems(users []db.TaggedUser) []*serversv1.TaggedUser {
+	items := make([]*serversv1.TaggedUser, len(users))
+	for i, user := range users {
+		items[i] = &serversv1.TaggedUser{Id: user.ID.String(), Name: user.Name}
+	}
+	return items
+}
+
+func parseTaggedUserIDs(values []string) ([]gocql.UUID, error) {
+	ids := make([]gocql.UUID, len(values))
+	for i, value := range values {
+		id, err := parseID(value, "tagged user ID")
+		if err != nil {
+			return nil, err
+		}
+		ids[i] = id
+	}
+	return ids, nil
 }
 
 func (s *serverService) SubscribeChannelMessages(
