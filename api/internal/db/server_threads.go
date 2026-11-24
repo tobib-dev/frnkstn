@@ -24,18 +24,19 @@ type ThreadMessage struct {
 	AuthorName string
 	Content    string
 	Edited     bool
+	Tags       []gocql.UUID
 }
 
 var threadTable = table.New(table.Metadata{
 	Name:    "server_channel_threads",
-	Columns: []string{"server_id", "channel_id", "thread_id", "message_id", "author_id", "author_name", "content", "edited"},
+	Columns: []string{"server_id", "channel_id", "thread_id", "message_id", "author_id", "author_name", "content", "edited", "tags"},
 	PartKey: []string{"server_id", "channel_id"},
 	SortKey: []string{"thread_id", "message_id"},
 })
 
 var threadByChannelTable = table.New(table.Metadata{
 	Name:    "threads_by_channel",
-	Columns: []string{"server_id", "channel_id", "thread_id", "message_id", "author_id", "author_name", "content", "edited"},
+	Columns: []string{"server_id", "channel_id", "thread_id", "message_id", "author_id", "author_name", "content", "edited", "tags"},
 	PartKey: []string{"server_id"},
 	SortKey: []string{"channel_id", "thread_id", "message_id"},
 })
@@ -57,6 +58,7 @@ func (db *DB) CreateReply(
 		AuthorName: &threadMsg.AuthorName,
 		Content:    threadMsg.Content,
 		Edited:     threadMsg.Edited,
+		Tags:       threadMsg.Tags,
 	}
 	ogMsg := ChannelMessage{
 		ServerID:  threadMsg.ServerID,
@@ -78,7 +80,7 @@ func (db *DB) CreateReply(
 		ServerID: threadMsg.ServerID, ChannelID: threadMsg.ChannelID,
 		ThreadID: threadMsg.ThreadID, MessageID: originalMessageID,
 		AuthorID: ogMsg.AuthorID, AuthorName: originalAuthorName,
-		Content: ogMsg.Content, Edited: ogMsg.Edited,
+		Content: ogMsg.Content, Edited: ogMsg.Edited, Tags: ogMsg.Tags,
 	}
 
 	b := db.Session.ContextBatch(ctx,
@@ -122,7 +124,7 @@ func (db *DB) ReplyThread(ctx context.Context, threadMsg ThreadMessage) (ThreadM
 		ServerID: threadMsg.ServerID, ChannelID: threadMsg.ChannelID,
 		MessageID: threadMsg.MessageID, AuthorID: threadMsg.AuthorID,
 		AuthorName: &threadMsg.AuthorName, Content: threadMsg.Content,
-		Edited: threadMsg.Edited,
+		Edited: threadMsg.Edited, Tags: threadMsg.Tags,
 	}
 	b := db.Session.ContextBatch(ctx, gocql.LoggedBatch)
 	if err := b.BindStruct(channelMsgs.InsertQuery(*db.Session), message); err != nil {
