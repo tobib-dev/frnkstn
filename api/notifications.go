@@ -414,6 +414,8 @@ func (s *notificationService) StartNotificationConsumer(ctx context.Context) err
 				addErr = s.addInviteNotification(ctx, item.GetInvite())
 			case item.GetFriend() != nil:
 				_, addErr = s.AddFriendN10N(ctx, &ntfnV1.AddFriendN10NRequest{Item: item.GetFriend()})
+			case item.GetServerMessage() != nil:
+				addErr = s.addServerMessageNotification(ctx, item.GetServerMessage())
 			default:
 				logger.Error("received notification without an item")
 				_ = delivery.Discard(ctx, nil)
@@ -522,7 +524,30 @@ func (s *notificationService) Subscribe(
 		send(result{done: true})
 	}()
 
-	for completed := 0; completed < 3; {
+	go func() {
+		items, err := s.store.GetServerMessageNotifications(
+			ctx, userID)
+		if err != nil {
+			send(result{
+				err: status.Error(
+					codes.Internal,
+					"could not get server message notifications"),
+			})
+			return
+		}
+		for _, notification := range items {
+			if !send(result{
+				item: &ntfnV1.SubscribeResponse{
+					Item: &ntfnV1.SubscribeResponse_ServerMessage{
+						ServerMessage: serverMessageNotificationItem(
+							notification)}}}) {
+				return
+			}
+		}
+		send(result{done: true})
+	}()
+
+	for completed := 0; completed < 4; {
 		var result result
 		select {
 		case result = <-results:

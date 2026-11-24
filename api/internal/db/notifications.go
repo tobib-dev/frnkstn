@@ -19,6 +19,76 @@ type NotificationStore interface {
 	AddFriendNotification(context.Context, FriendNotification) error
 	GetFriendNotification(context.Context, gocql.UUID) ([]FriendNotification, error)
 	UpdateFriendNotification(context.Context, gocql.UUID, gocql.UUID) error
+	AddServerMessageNotification(context.Context, ServerMessageNotification) error
+	GetServerMessageNotifications(context.Context, gocql.UUID) ([]ServerMessageNotification, error)
+	UpdateServerMessageNotification(context.Context, gocql.UUID, gocql.UUID) error
+}
+
+type ServerMessageNotification struct {
+	NotificationID gocql.UUID
+	UserID         gocql.UUID
+	ServerID       gocql.UUID
+	ChannelID      gocql.UUID
+	MessageID      gocql.UUID
+	Content        string
+	Seen           bool
+}
+
+var serverMsgN10nTable = table.New(table.Metadata{Name: "server_message_notifications", Columns: []string{"user_id", "notification_id", "server_id", "channel_id", "message_id", "content", "seen"}, PartKey: []string{"user_id", "seen"}, SortKey: []string{"notification_id"}})
+
+func (db *DB) AddServerMessageNotification(
+	ctx context.Context,
+	item ServerMessageNotification) error {
+	return db.Session.Query(
+		serverMsgN10nTable.Insert()).
+		WithContext(ctx).
+		BindStruct(item).
+		ExecRelease()
+}
+
+func (db *DB) GetServerMessageNotifications(
+	ctx context.Context,
+	userID gocql.UUID,
+) ([]ServerMessageNotification, error) {
+	var items []ServerMessageNotification
+	err := db.Session.Query(
+		serverMsgN10nTable.Select()).
+		WithContext(ctx).
+		BindMap(
+			qb.M{"user_id": userID, "seen": false}).
+		SelectRelease(&items)
+	return items, err
+}
+
+func (db *DB) UpdateServerMessageNotification(
+	ctx context.Context, userID,
+	notificationID gocql.UUID) error {
+	item := ServerMessageNotification{
+		UserID:         userID,
+		NotificationID: notificationID,
+		Seen:           false,
+	}
+	if err := db.Session.Query(
+		serverMsgN10nTable.Get()).
+		WithContext(ctx).
+		BindStruct(item).
+		GetRelease(&item); err != nil {
+		return err
+	}
+	b := db.Session.ContextBatch(
+		ctx, gocql.LoggedBatch)
+	if err := b.BindStruct(
+		serverMsgN10nTable.DeleteQuery(
+			*db.Session), item); err != nil {
+		return err
+	}
+	item.Seen = true
+	if err := b.BindStruct(
+		serverMsgN10nTable.InsertQuery(
+			*db.Session), item); err != nil {
+		return err
+	}
+	return db.Session.ExecuteBatch(b)
 }
 
 type MessageNotification struct {

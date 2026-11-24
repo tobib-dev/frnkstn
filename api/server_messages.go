@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/gocql/gocql"
+	ntfnV1 "github.com/tobib-dev/frnkstn-proto/notifications/v1"
 	serversv1 "github.com/tobib-dev/frnkstn-proto/servers/v1"
 	"github.com/tobib-dev/frnkstn/api/internal/auth"
 	"github.com/tobib-dev/frnkstn/api/internal/data"
@@ -68,6 +70,7 @@ func (s *serverService) PostMessage(
 		return nil, s.serverMessageError("post message", err)
 	}
 	logger.Info("server message posted", "message_id", message.MessageID)
+	s.publishTaggedMessageNotifications(ctx, message, logger)
 	return &serversv1.PostMessageResponse{Item: serverMessageItem(message)}, nil
 }
 
@@ -203,6 +206,7 @@ func (s *serverService) EditMessage(
 		return nil, s.serverMessageError("edit message", err)
 	}
 	logger.Info("server message edited")
+	s.publishTaggedMessageNotifications(ctx, message, logger)
 	return &serversv1.EditMessageResponse{Item: serverMessageItem(message)}, nil
 }
 
@@ -249,6 +253,30 @@ func (s *serverService) serverMessageError(operation string, err error) error {
 	}
 	s.cfg.logger.Error("server message operation failed", "operation", operation, "error", err)
 	return status.Error(codes.Internal, "could not "+operation)
+}
+
+func (s *serverService) publishTaggedMessageNotifications(ctx context.Context, message db.ChannelMessageResponse, logger *slog.Logger) {
+	for _, user := range message.TaggedUsers {
+		item := &ntfnV1.ServerMessageN10NItem{
+			Id: gocql.TimeUUID().String(), RecipientId: user.ID.String(),
+			ServerId: message.ServerID.String(), ChannelId: message.ChannelID.String(),
+			MessageId: message.MessageID.String(), Content: message.Content,
+		}
+		s.n10n.publishNotification(ctx, item.RecipientId, &ntfnV1.SubscribeResponse{
+			Item: &ntfnV1.SubscribeResponse_ServerMessage{ServerMessage: item},
+		}, logger, func() {
+			id, err := parseID(item.Id, "notification ID")
+			if err == nil {
+				err = s.n10n.store.AddServerMessageNotification(ctx, db.ServerMessageNotification{
+					NotificationID: id, UserID: user.ID, ServerID: message.ServerID,
+					ChannelID: message.ChannelID, MessageID: message.MessageID, Content: message.Content,
+				})
+			}
+			if err != nil {
+				logger.Error("failed to store server message notification", "error", err)
+			}
+		})
+	}
 }
 
 func serverMessageItem(message db.ChannelMessageResponse) *serversv1.MessageItem {

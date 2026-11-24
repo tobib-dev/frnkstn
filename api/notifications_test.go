@@ -14,25 +14,27 @@ import (
 )
 
 type testNotificationStore struct {
-	invite            db.InviteNotification
-	inviteAdded       chan struct{}
-	updatedInvite     [2]gocql.UUID
-	message           db.MessageNotification
-	friend            db.FriendNotification
-	updatedMessage    [2]gocql.UUID
-	deletedMessages   []gocql.UUID
-	deletedUser       gocql.UUID
-	updatedFriend     [2]gocql.UUID
-	messageErr        error
-	friendErr         error
-	messageGets       int
-	friendGets        int
-	messageAdded      chan struct{}
-	friendAdded       chan struct{}
-	messageGetStarted chan struct{}
-	messageGetRelease <-chan struct{}
-	friendGetStarted  chan struct{}
-	friendGetRelease  <-chan struct{}
+	invite               db.InviteNotification
+	inviteAdded          chan struct{}
+	updatedInvite        [2]gocql.UUID
+	message              db.MessageNotification
+	friend               db.FriendNotification
+	serverMessage        db.ServerMessageNotification
+	updatedServerMessage [2]gocql.UUID
+	updatedMessage       [2]gocql.UUID
+	deletedMessages      []gocql.UUID
+	deletedUser          gocql.UUID
+	updatedFriend        [2]gocql.UUID
+	messageErr           error
+	friendErr            error
+	messageGets          int
+	friendGets           int
+	messageAdded         chan struct{}
+	friendAdded          chan struct{}
+	messageGetStarted    chan struct{}
+	messageGetRelease    <-chan struct{}
+	friendGetStarted     chan struct{}
+	friendGetRelease     <-chan struct{}
 }
 
 type testNotificationMessageStore struct {
@@ -168,6 +170,23 @@ func (s *testNotificationStore) UpdateFriendNotification(
 	userID, notificationID gocql.UUID,
 ) error {
 	s.updatedFriend = [2]gocql.UUID{userID, notificationID}
+	return nil
+}
+
+func (s *testNotificationStore) AddServerMessageNotification(_ context.Context, item db.ServerMessageNotification) error {
+	s.serverMessage = item
+	return nil
+}
+
+func (s *testNotificationStore) GetServerMessageNotifications(_ context.Context, userID gocql.UUID) ([]db.ServerMessageNotification, error) {
+	if s.serverMessage.NotificationID == (gocql.UUID{}) || s.serverMessage.UserID != userID || s.serverMessage.Seen {
+		return nil, nil
+	}
+	return []db.ServerMessageNotification{s.serverMessage}, nil
+}
+
+func (s *testNotificationStore) UpdateServerMessageNotification(_ context.Context, userID, notificationID gocql.UUID) error {
+	s.updatedServerMessage = [2]gocql.UUID{userID, notificationID}
 	return nil
 }
 
