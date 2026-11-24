@@ -21,6 +21,7 @@ type serverService struct {
 	mods     db.ServerModsStore
 	channels db.ChannelStore
 	messages db.ChannelMessageStore
+	threads  db.ThreadStore
 	cleanup  interface {
 		UpdateServerLookups(context.Context, gocql.UUID) error
 		MarkServerLookupsDeleted(context.Context, gocql.UUID) error
@@ -42,6 +43,7 @@ func NewServerService(cfg *Config, messages db.ChannelMessageStore) *serverServi
 		mods:     &cfg.db.session,
 		channels: &cfg.db.session,
 		messages: messages,
+		threads:  &cfg.db.session,
 		cleanup:  &cfg.db.session,
 	}
 	if cfg.brokerURI != "" {
