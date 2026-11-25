@@ -20,9 +20,9 @@ func conversationView(title, history, input, notice, help string, width, height,
 	width, height = max(1, width-conversationMargin), max(1, height-conversationMargin)
 	footer := strings.Repeat("─", width) + "\n" + ansi.Truncate(input, width, "")
 	if notice != "" {
-		footer += "\n" + ansi.Truncate(strings.ReplaceAll(notice, "\n", " "), width, "")
+		footer += "\n" + ansi.Wrap(notice, width, "")
 	}
-	footer += "\n" + ansi.Truncate(help, width, "")
+	footer += "\n" + ansi.Wrap(help, width, "")
 	header := ansi.Truncate(title, width, "")
 	available := height - strings.Count(footer, "\n") - 2
 	if available < 1 {
@@ -85,7 +85,17 @@ func (m serversModel) conversationView() string {
 	if m.busy {
 		notice = "Sending/loading…"
 	}
-	help := "Tab/n compose · ↑/↓ select · T reply · t threads · PgUp/PgDn scroll · Esc back"
+	if m.cooldown.seconds > 0 && m.cooldown.serverID == m.item.GetServerId() && m.cooldown.channelID == m.channels[m.channelSelected].GetChannelId() {
+		wait := "Slowmode: ready to send"
+		if m.cooldown.timer.Running() {
+			wait = "Next message in " + m.cooldown.timer.View()
+		}
+		if notice != "" {
+			notice += "\n"
+		}
+		notice += wait
+	}
+	help := "↑/↓ select · Enter open thread · n compose · T reply · t threads · PgUp/PgDn scroll · Esc back"
 	if thread {
 		help = "r reply · PgUp/PgDn scroll · Esc threads"
 	}

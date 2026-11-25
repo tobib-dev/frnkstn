@@ -40,6 +40,7 @@ const (
 	serverDeleteMessageConfirmation
 	serverThreads
 	serverThreadMessages
+	serverSlowMode
 )
 
 type serverOperation int
@@ -74,9 +75,11 @@ const (
 	loadThread
 	createThread
 	replyThread
+	openMessageThread
 )
 
 type serverResultMsg struct {
+	cooldown       *channelCooldownStatus
 	operation      serverOperation
 	items          []*serversv1.UserServerItem
 	item           *serversv1.ServerItem
@@ -94,6 +97,7 @@ type serverResultMsg struct {
 }
 
 type serversModel struct {
+	cooldown                     channelCooldown
 	width, height, historyScroll int
 
 	mentionMembers  []*serversv1.MemberItem
@@ -293,6 +297,11 @@ func (m serversModel) request(operation serverOperation, item *serversv1.ServerI
 			if err == nil {
 				result.threads = response.GetItems()
 			}
+		case openMessageThread:
+			message := m.messages[m.messageSelected]
+			result.threadID, result.threadMessages, result.err = findMessageThread(
+				ctx, client, m.item.GetServerId(), message.GetChannelId(), message.GetMessageId(),
+			)
 		case loadThread:
 			channel := m.channels[m.channelSelected]
 			response, err := client.GetThread(ctx, &serversv1.GetThreadRequest{ServerId: m.item.GetServerId(), ChannelId: channel.GetChannelId(), ThreadId: m.threadID})
@@ -358,11 +367,18 @@ func (m serversModel) request(operation serverOperation, item *serversv1.ServerI
 		if result.err == nil && (operation == getMod || operation == addMod) && result.mod == nil {
 			result.err = status.Error(codes.Internal, "moderator response is missing its item")
 		}
+		m.readCooldown(ctx, conn, &result)
 		return result
 	}
 }
 
 func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
+	if updated, cmd, handled := m.updateCooldownTick(msg); handled {
+		return updated, cmd
+	}
+	if updated, cmd, handled := m.updateSlowMode(msg); handled {
+		return updated, cmd
+	}
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
 		m.setSize(size.Width, size.Height)
 		return m, nil
@@ -389,6 +405,7 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 		return updated, cmd
 	}
 	if result, ok := msg.(serverResultMsg); ok {
+		clockCmd := m.applyCooldown(result.cooldown)
 		m.busy = false
 		if result.err != nil {
 			m.errorText = "Could not complete server request. Please try again."
@@ -397,6 +414,9 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 				m.errorText = "You do not have permission to perform this action."
 			case codes.NotFound:
 				m.errorText = "Server, member, moderator, or invitation was not found."
+				if result.operation == openMessageThread {
+					m.errorText = "This message does not belong to a thread."
+				}
 				if result.operation == listChannelMessages || result.operation == loadOlderChannelMessages ||
 					result.operation == postChannelMessage || result.operation == editChannelMessage ||
 					result.operation == deleteChannelMessage {
@@ -407,12 +427,12 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 				if result.operation == addMod {
 					m.errorText = "This member is already a moderator."
 				}
-			case codes.InvalidArgument, codes.FailedPrecondition:
+			case codes.InvalidArgument, codes.FailedPrecondition, codes.ResourceExhausted:
 				m.errorText = status.Convert(result.err).Message()
 			case codes.Unauthenticated:
 				m.errorText = "Session expired. Sign out and sign in again."
 			}
-			return m, nil
+			return m, clockCmd
 		}
 		m.errorText = ""
 		switch result.operation {
@@ -450,10 +470,10 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 			if result.operation == deleteMod {
 				m.notice = "Moderator demoted. They remain a server member."
 			}
-			return m, m.request(listMods, nil)
+			return m, tea.Batch(clockCmd, m.request(listMods, nil))
 		case removeMember:
 			m.page, m.busy = serverMembers, true
-			return m, m.request(listMembers, nil)
+			return m, tea.Batch(clockCmd, m.request(listMembers, nil))
 		case deleteServer, leaveServer:
 			for i, row := range m.items {
 				if row.ServerId == m.item.ServerId {
@@ -470,19 +490,22 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 			if result.operation == listChannelMessages {
 				m.messageSelected = 0
 				m.page, m.composeThreadID, m.creatingThread = serverComposeMessage, "", false
-				return m, m.messageInput.Focus()
+				return m, tea.Batch(clockCmd, m.messageInput.Focus())
 			}
 		case listThreads:
 			m.threads, m.threadSelected, m.page = result.threads, 0, serverThreads
-		case loadThread:
+		case loadThread, openMessageThread:
+			if result.operation == openMessageThread {
+				m.threadID = result.threadID
+			}
 			m.threadMessages, m.page = result.threadMessages, serverComposeMessage
 			m.composeThreadID, m.creatingThread, m.historyScroll = m.threadID, false, 0
-			return m, m.messageInput.Focus()
+			return m, tea.Batch(clockCmd, m.messageInput.Focus())
 		case createThread, replyThread:
 			m.creatingThread = false
 			m.messageInput.Reset()
 			m.threadID, m.page = result.threadID, serverThreadMessages
-			return m, m.request(loadThread, nil)
+			return m, tea.Batch(clockCmd, m.request(loadThread, nil))
 		case postChannelMessage, editChannelMessage, deleteChannelMessage:
 			m.messages, m.nextPageToken, m.page = result.messages, result.nextToken, serverChannelMessages
 			m.historyScroll = 0
@@ -491,14 +514,14 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 			if result.operation == postChannelMessage {
 				m.messageSelected, m.notice = 0, "Message sent."
 				m.page = serverComposeMessage
-				return m, m.messageInput.Focus()
+				return m, tea.Batch(clockCmd, m.messageInput.Focus())
 			} else if result.operation == editChannelMessage {
 				m.notice = "Message updated."
 			} else {
 				m.notice = "Message deleted."
 			}
 		}
-		return m, nil
+		return m, clockCmd
 	}
 	if m.busy {
 		return m, nil
@@ -756,6 +779,11 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 		}
 	case serverChannelMessages:
 		switch key.String() {
+		case "enter":
+			if len(m.messages) > 0 {
+				m.busy, m.errorText = true, ""
+				return m, m.request(openMessageThread, nil)
+			}
 		case "up", "k":
 			if m.messageSelected > 0 {
 				m.messageSelected--
@@ -904,7 +932,7 @@ func (m serversModel) View() string {
 			}
 			b.WriteString("#" + channel.GetChannelName() + "\n")
 		}
-		b.WriteString(divider + "\n↑/↓ select · Enter messages · r refresh")
+		b.WriteString(divider + "\n↑/↓ select · Enter messages · r refresh · s slowmode (moderators)")
 		if m.item.Owner == m.userID {
 			b.WriteString(" · n create · e rename · d delete")
 		}
@@ -916,6 +944,9 @@ func (m serversModel) View() string {
 			b.WriteString("Rename channel\n\n")
 		}
 		b.WriteString(m.name.View() + "\n\nEnter save · Esc cancel")
+	case serverSlowMode:
+		b.WriteString("Slowmode · #" + m.channels[m.channelSelected].GetChannelName() + "\n" + divider + "\n")
+		b.WriteString(m.input.View() + "\n" + divider + "\nEnter save · 0 disable · Esc cancel")
 	case serverDeleteChannelConfirmation:
 		b.WriteString("Delete #" + m.channels[m.channelSelected].GetChannelName() + "?\n\ny confirm · n cancel · Esc cancel")
 	case serverThreads:

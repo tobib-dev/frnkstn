@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"charm.land/log/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type homeItemKind int
@@ -455,22 +456,31 @@ func (m homeModel) signOut(quit bool) (homeModel, tea.Cmd) {
 
 func (m homeModel) View() tea.View {
 	if m.state == homeEditingProfile {
-		return tea.NewView(lipgloss.NewStyle().Margin(2).Render(m.profile.View()))
+		return m.renderContent(m.profile.View())
 	}
 	if m.state == homeAddingFriend {
-		return tea.NewView(lipgloss.NewStyle().Margin(2).Render(m.addFriend.View()))
+		return m.renderContent(m.addFriend.View())
 	}
 	if m.state == homeViewingMessages {
-		return tea.NewView(lipgloss.NewStyle().Margin(2).Render(m.messages.View()))
+		return m.renderContent(m.messages.View())
 	}
 	if m.state == homeViewingNotifications {
-		return tea.NewView(lipgloss.NewStyle().Margin(2).Render(m.notifications.View()))
+		return m.renderContent(m.notifications.View())
 	}
 	if m.state == homeViewingServers {
-		return tea.NewView(lipgloss.NewStyle().Margin(2).Render(m.servers.View()))
+		return m.renderContent(m.servers.View())
 	}
 	if m.state == homeSigningOut {
-		return tea.NewView(lipgloss.NewStyle().Margin(2).Render("Signing out…"))
+		return m.renderContent("Signing out…")
 	}
-	return tea.NewView(lipgloss.NewStyle().Margin(2).Render(m.list.View()))
+	return m.renderContent(m.list.View())
+}
+
+func (m homeModel) renderContent(content string) tea.View {
+	width := m.list.Width()
+	if width <= 0 {
+		width = 80
+	}
+	width = max(1, width-conversationMargin)
+	return tea.NewView(lipgloss.NewStyle().Margin(2).Render(ansi.Wrap(content, width, "")))
 }

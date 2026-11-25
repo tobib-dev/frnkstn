@@ -27,3 +27,16 @@ func TestConversationViewKeepsComposerVisible(t *testing.T) {
 		t.Fatal("scrolling lost history or composer")
 	}
 }
+
+func TestConversationControlsWrap(t *testing.T) {
+	help := "Enter send · @ tag · Tab navigate · PgUp/PgDn scroll · Esc cancel"
+	view := conversationView("Channel", strings.Repeat("message\n", 100), "Message: draft", "Next message in 5s", help, 30, 24, 0)
+	if lipgloss.Width(view) > 26 || lipgloss.Height(view) > 20 {
+		t.Fatal("wrapped controls exceed terminal bounds")
+	}
+	for _, label := range []string{"Message: draft", "Enter send", "Esc cancel", "Next message in 5s"} {
+		if !strings.Contains(view, label) {
+			t.Fatalf("missing control or composer %q: %s", label, view)
+		}
+	}
+}
