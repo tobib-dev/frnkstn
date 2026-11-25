@@ -17,13 +17,15 @@ const (
 	messageNotification notificationKind = iota
 	friendNotification
 	inviteNotification
+	serverMessageNotification
 )
 
 type notificationItem struct {
-	kind    notificationKind
-	message *notificationsv1.MsgN10NItem
-	friend  *notificationsv1.FriendN10NItem
-	invite  *notificationsv1.InviteN10NItem
+	kind          notificationKind
+	message       *notificationsv1.MsgN10NItem
+	friend        *notificationsv1.FriendN10NItem
+	invite        *notificationsv1.InviteN10NItem
+	serverMessage *notificationsv1.ServerMessageN10NItem
 }
 
 func (n notificationItem) label() string {
@@ -32,6 +34,9 @@ func (n notificationItem) label() string {
 	}
 	if n.kind == messageNotification {
 		return fmt.Sprintf("Message from %s: %s", n.message.GetAuthorName(), n.message.GetContent())
+	}
+	if n.kind == serverMessageNotification {
+		return "You were tagged in a server message."
 	}
 	return fmt.Sprintf("Friend request from %s (%s)", n.friend.GetFriendName(), n.friend.GetStatus())
 }
@@ -42,6 +47,9 @@ func (n notificationItem) id() string {
 	}
 	if n.kind == messageNotification {
 		return n.message.GetId()
+	}
+	if n.kind == serverMessageNotification {
+		return n.serverMessage.GetId()
 	}
 	return n.friend.GetId()
 }
@@ -301,6 +309,8 @@ func pollNotifications(accessToken bearerToken, grpcPort string) tea.Cmd {
 				items = append(items, notificationItem{kind: inviteNotification, invite: invite})
 			} else if friend := response.GetFriend(); friend != nil {
 				items = append(items, notificationItem{kind: friendNotification, friend: friend})
+			} else if message := response.GetServerMessage(); message != nil {
+				items = append(items, notificationItem{kind: serverMessageNotification, serverMessage: message})
 			}
 		}
 		return notificationsPolledMsg{items: items}
@@ -343,6 +353,13 @@ func updateNotification(
 		} else if item.kind == inviteNotification {
 			_, err = client.UpdateInviteN10N(ctx, &notificationsv1.UpdateInviteN10NRequest{
 				Id: item.invite.GetId(),
+			})
+			if err != nil {
+				return notificationUpdateFailedMsg{err: err}
+			}
+		} else if item.kind == serverMessageNotification {
+			_, err = client.UpdateServerMessageN10N(ctx, &notificationsv1.UpdateServerMessageN10NRequest{
+				Item: &notificationsv1.ServerMessageN10NItem{Id: item.serverMessage.GetId()},
 			})
 			if err != nil {
 				return notificationUpdateFailedMsg{err: err}
