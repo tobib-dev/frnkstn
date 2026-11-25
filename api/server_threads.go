@@ -13,7 +13,7 @@ import (
 )
 
 func (s *serverService) CreateReply(ctx context.Context, req *serversv1.CreateReplyRequest) (*serversv1.CreateReplyResponse, error) {
-	return s.createThreadMessage(ctx, req.GetServerId(), req.GetChannelId(), req.GetOriginalMessageId(), req.GetAuthorId(), req.GetContent())
+	return s.createThreadMessage(ctx, req.GetServerId(), req.GetChannelId(), req.GetOriginalMessageId(), req.GetAuthorId(), req.GetContent(), req.GetTaggedUserIds())
 }
 
 func (s *serverService) ReplyThread(ctx context.Context, req *serversv1.ReplyThreadRequest) (*serversv1.ReplyThreadResponse, error) {
@@ -55,10 +55,15 @@ func (s *serverService) ReplyThread(ctx context.Context, req *serversv1.ReplyThr
 	if err != nil {
 		return nil, userLookupError(err)
 	}
-	item, err := s.threads.ReplyThread(ctx, db.ThreadMessage{ServerID: serverID, ChannelID: channelID, ThreadID: threadID, MessageID: gocql.TimeUUID(), AuthorID: userID, AuthorName: author.Username, Content: content})
+	tags, err := parseTaggedUserIDs(req.GetTaggedUserIds())
+	if err != nil {
+		return nil, err
+	}
+	item, err := s.threads.ReplyThread(ctx, db.ThreadMessage{ServerID: serverID, ChannelID: channelID, ThreadID: threadID, MessageID: gocql.TimeUUID(), AuthorID: userID, AuthorName: author.Username, Content: content, Tags: tags})
 	if err != nil {
 		return nil, status.Error(codes.Internal, "could not reply to thread")
 	}
+	s.publishThreadTags(ctx, item)
 	return &serversv1.ReplyThreadResponse{Item: serverThreadItem(item)}, nil
 }
 
@@ -116,7 +121,7 @@ func (s *serverService) GetThreads(ctx context.Context, req *serversv1.GetThread
 	return response, nil
 }
 
-func (s *serverService) createThreadMessage(ctx context.Context, serverIDValue, channelIDValue, originalMessageIDValue, authorIDValue, contentValue string) (*serversv1.CreateReplyResponse, error) {
+func (s *serverService) createThreadMessage(ctx context.Context, serverIDValue, channelIDValue, originalMessageIDValue, authorIDValue, contentValue string, tagValues []string) (*serversv1.CreateReplyResponse, error) {
 	userID, err := authenticatedUserID(ctx, s.cfg, auth.PermissionWriteMessages)
 	if err != nil {
 		return nil, err
@@ -151,13 +156,33 @@ func (s *serverService) createThreadMessage(ctx context.Context, serverIDValue, 
 	if err != nil {
 		return nil, userLookupError(err)
 	}
-	thread, err := s.threads.CreateReply(ctx, originalMessageID, db.ThreadMessage{ServerID: serverID, ChannelID: channelID, ThreadID: originalMessageID, MessageID: gocql.TimeUUID(), AuthorID: userID, AuthorName: author.Username, Content: content})
+	tags, err := parseTaggedUserIDs(tagValues)
+	if err != nil {
+		return nil, err
+	}
+	thread, err := s.threads.CreateReply(ctx, originalMessageID, db.ThreadMessage{ServerID: serverID, ChannelID: channelID, ThreadID: originalMessageID, MessageID: gocql.TimeUUID(), AuthorID: userID, AuthorName: author.Username, Content: content, Tags: tags})
 	if err != nil {
 		return nil, s.serverMessageError("create thread reply", err)
 	}
+	s.publishThreadTags(ctx, thread)
 	return &serversv1.CreateReplyResponse{Item: serverThreadItem(thread)}, nil
 }
 
 func serverThreadItem(item db.ThreadMessage) *serversv1.ThreadItem {
-	return &serversv1.ThreadItem{ServerId: item.ServerID.String(), ChannelId: item.ChannelID.String(), ThreadId: item.ThreadID.String(), MessageId: item.MessageID.String(), AuthorId: item.AuthorID.String(), AuthorName: item.AuthorName, Content: item.Content, Edited: item.Edited}
+	ids := make([]string, len(item.Tags))
+	for i, id := range item.Tags {
+		ids[i] = id.String()
+	}
+	return &serversv1.ThreadItem{TaggedUserIds: ids, ServerId: item.ServerID.String(), ChannelId: item.ChannelID.String(), ThreadId: item.ThreadID.String(), MessageId: item.MessageID.String(), AuthorId: item.AuthorID.String(), AuthorName: item.AuthorName, Content: item.Content, Edited: item.Edited}
+}
+
+func (s *serverService) publishThreadTags(ctx context.Context, item db.ThreadMessage) {
+	users := make([]db.TaggedUser, len(item.Tags))
+	for i, id := range item.Tags {
+		users[i] = db.TaggedUser{ID: id}
+	}
+	s.publishTaggedMessageNotifications(ctx, db.ChannelMessageResponse{
+		ServerID: item.ServerID, ChannelID: item.ChannelID, MessageID: item.MessageID,
+		AuthorID: item.AuthorID, Content: item.Content, TaggedUsers: users,
+	}, s.cfg.logger.With("operation", "thread notification", "thread_id", item.ThreadID))
 }
