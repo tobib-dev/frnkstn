@@ -134,6 +134,8 @@ func (i messageFriendItem) receiverID() string {
 }
 
 type messagesModel struct {
+	width, height, historyScroll int
+
 	list, friends    list.Model
 	input            textinput.Model
 	state            messagesState
@@ -167,6 +169,7 @@ func newMessagesModel(
 	input.Prompt = "Message: "
 	input.SetVirtualCursor(true)
 	return messagesModel{
+		width: width, height: height,
 		list:        messages,
 		friends:     friends,
 		input:       input,
@@ -184,11 +187,25 @@ func newMessagesModel(
 }
 
 func (m *messagesModel) setSize(width, height int) {
+	m.width, m.height = width, height
+	m.input.SetWidth(max(1, width-15))
 	m.list.SetSize(width, height)
 	m.friends.SetSize(width, height)
 }
 
 func (m messagesModel) Update(msg tea.Msg) (messagesModel, tea.Cmd) {
+	if key, ok := msg.(tea.KeyPressMsg); ok && m.state == messagesViewingConversation {
+		switch key.String() {
+		case "pgup":
+			m.historyScroll += max(1, m.height/2)
+			return m, nil
+		case "pgdown":
+			m.historyScroll = max(0, m.historyScroll-max(1, m.height/2))
+			return m, nil
+		case "enter":
+			m.historyScroll = 0
+		}
+	}
 	switch msg := msg.(type) {
 	case messagesLoadedMsg:
 		m.loading = false
@@ -458,32 +475,32 @@ func (m messagesModel) View() string {
 		if friendName == "" {
 			friendName = "Them"
 		}
-		view := "Conversation with " + friendName + "\n\n"
+		history := ""
 		if m.loading {
-			view += "Loading messages…"
+			history += "Loading messages…"
 		} else if len(m.conversation) == 0 {
-			view += "No messages yet."
+			history += "No messages yet."
 		} else {
 			for _, item := range m.conversation {
 				author := friendName
 				if item.GetAuthorId() == m.userID {
 					author = "You"
 				}
-				view += author + ": " + item.GetContent()
+				history += author + ": " + item.GetContent()
 				if sentAt, ok := messageTime(item); ok {
-					view += " • " + sentAt.Local().Format("Jan 2, 2006 3:04 PM")
+					history += " • " + sentAt.Local().Format("Jan 2, 2006 3:04 PM")
 				}
-				view += "\n"
+				history += "\n"
 			}
 		}
-		if m.errorText != "" {
-			view += "\n" + m.errorText
-		}
-		view += "\n" + m.input.View()
+
+		footer := m.errorText
 		if m.sending {
-			view += "\nSending…"
+			footer = "Sending…"
 		}
-		return view + "\n\nEnter to send • Esc to return to messages"
+		return conversationView("Conversation with "+friendName, history, m.input.View(),
+			footer, "Enter send · PgUp/PgDn scroll · Esc messages", m.width, m.height, m.historyScroll)
+
 	default:
 		view := m.list.View()
 		if m.loading {
@@ -521,6 +538,7 @@ func (m messagesModel) openConversation(metadata *dmsv1.DirectMessageMetadata) (
 	m.state = messagesViewingConversation
 	m.selectedDM = metadata
 	m.conversation = nil
+	m.historyScroll = 0
 	m.loading = true
 	m.sending = false
 	m.errorText = ""

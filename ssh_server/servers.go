@@ -38,6 +38,8 @@ const (
 	serverComposeMessage
 	serverEditMessage
 	serverDeleteMessageConfirmation
+	serverThreads
+	serverThreadMessages
 )
 
 type serverOperation int
@@ -68,23 +70,37 @@ const (
 	postChannelMessage
 	editChannelMessage
 	deleteChannelMessage
+	listThreads
+	loadThread
+	createThread
+	replyThread
 )
 
 type serverResultMsg struct {
-	operation serverOperation
-	items     []*serversv1.UserServerItem
-	item      *serversv1.ServerItem
-	members   []*serversv1.MemberItem
-	mods      []*serversv1.ModItem
-	channels  []*serversv1.ChannelItem
-	messages  []*serversv1.MessageItem
-	nextToken string
-	mod       *serversv1.ModItem
-	friends   []*friendsv1.GetFriendsItem
-	err       error
+	operation      serverOperation
+	items          []*serversv1.UserServerItem
+	item           *serversv1.ServerItem
+	members        []*serversv1.MemberItem
+	mods           []*serversv1.ModItem
+	channels       []*serversv1.ChannelItem
+	messages       []*serversv1.MessageItem
+	threads        []*serversv1.ThreadItem
+	threadMessages []*serversv1.ThreadItem
+	threadID       string
+	nextToken      string
+	mod            *serversv1.ModItem
+	friends        []*friendsv1.GetFriendsItem
+	err            error
 }
 
 type serversModel struct {
+	width, height, historyScroll int
+
+	mentionMembers  []*serversv1.MemberItem
+	mentionOpen     bool
+	mentionSelected int
+	mentionStart    int
+
 	userID, grpcPort string
 	accessToken      bearerToken
 	page             serversPage
@@ -101,6 +117,12 @@ type serversModel struct {
 	channels         []*serversv1.ChannelItem
 	channelSelected  int
 	messages         []*serversv1.MessageItem
+	threads          []*serversv1.ThreadItem
+	threadMessages   []*serversv1.ThreadItem
+	threadID         string
+	threadSelected   int
+	composeThreadID  string
+	creatingThread   bool
 	messageSelected  int
 	nextPageToken    string
 	messageInput     textinput.Model
@@ -223,9 +245,15 @@ func (m serversModel) request(operation serverOperation, item *serversv1.ServerI
 			}
 		case postChannelMessage:
 			channel := m.channels[m.channelSelected]
+			content := strings.TrimSpace(m.messageInput.Value())
+			taggedUserIDs, err := resolveMentionedUsers(ctx, client, m.item.GetServerId(), content)
+			if err != nil {
+				result.err = err
+				break
+			}
 			response, err := client.PostMessage(ctx, &serversv1.PostMessageRequest{
 				ServerId: m.item.GetServerId(), ChannelId: channel.GetChannelId(),
-				AuthorId: m.userID, Content: strings.TrimSpace(m.messageInput.Value()),
+				AuthorId: m.userID, Content: content, TaggedUserIds: taggedUserIDs,
 			})
 			result.err = err
 			if err == nil {
@@ -238,9 +266,15 @@ func (m serversModel) request(operation serverOperation, item *serversv1.ServerI
 			}
 		case editChannelMessage:
 			message := m.messages[m.messageSelected]
+			content := strings.TrimSpace(m.messageInput.Value())
+			taggedUserIDs, err := resolveMentionedUsers(ctx, client, m.item.GetServerId(), content)
+			if err != nil {
+				result.err = err
+				break
+			}
 			response, err := client.EditMessage(ctx, &serversv1.EditMessageRequest{
 				ServerId: m.item.GetServerId(), ChannelId: message.GetChannelId(),
-				MessageId: message.GetMessageId(), Content: strings.TrimSpace(m.messageInput.Value()),
+				MessageId: message.GetMessageId(), Content: content, TaggedUserIds: taggedUserIDs,
 			})
 			result.err = err
 			if err == nil {
@@ -251,6 +285,45 @@ func (m serversModel) request(operation serverOperation, item *serversv1.ServerI
 				result.messages = append([]*serversv1.MessageItem(nil), m.messages...)
 				result.messages[m.messageSelected] = response.GetItem()
 				result.nextToken = m.nextPageToken
+			}
+		case listThreads:
+			channel := m.channels[m.channelSelected]
+			response, err := client.GetThreads(ctx, &serversv1.GetThreadsRequest{ServerId: m.item.GetServerId(), ChannelId: channel.GetChannelId()})
+			result.err = err
+			if err == nil {
+				result.threads = response.GetItems()
+			}
+		case loadThread:
+			channel := m.channels[m.channelSelected]
+			response, err := client.GetThread(ctx, &serversv1.GetThreadRequest{ServerId: m.item.GetServerId(), ChannelId: channel.GetChannelId(), ThreadId: m.threadID})
+			result.err = err
+			if err == nil {
+				result.threadMessages = response.GetItems()
+			}
+		case createThread:
+			channel := m.channels[m.channelSelected]
+			root := m.messages[m.messageSelected]
+			tags, err := resolveMentionedUsers(ctx, client, m.item.GetServerId(), m.messageInput.Value())
+			if err != nil {
+				result.err = err
+				break
+			}
+			response, err := client.CreateReply(ctx, &serversv1.CreateReplyRequest{ServerId: m.item.GetServerId(), ChannelId: channel.GetChannelId(), TaggedUserIds: tags, OriginalMessageId: root.GetMessageId(), AuthorId: m.userID, Content: strings.TrimSpace(m.messageInput.Value())})
+			result.err = err
+			if err == nil && response.GetItem() != nil {
+				result.threadID = response.GetItem().GetThreadId()
+			}
+		case replyThread:
+			tags, err := resolveMentionedUsers(ctx, client, m.item.GetServerId(), m.messageInput.Value())
+			if err != nil {
+				result.err = err
+				break
+			}
+			channel := m.channels[m.channelSelected]
+			response, err := client.ReplyThread(ctx, &serversv1.ReplyThreadRequest{ServerId: m.item.GetServerId(), ChannelId: channel.GetChannelId(), TaggedUserIds: tags, ThreadId: m.composeThreadID, AuthorId: m.userID, Content: strings.TrimSpace(m.messageInput.Value())})
+			result.err = err
+			if err == nil && response.GetItem() != nil {
+				result.threadID = response.GetItem().GetThreadId()
 			}
 		case deleteChannelMessage:
 			message := m.messages[m.messageSelected]
@@ -290,6 +363,31 @@ func (m serversModel) request(operation serverOperation, item *serversv1.ServerI
 }
 
 func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
+	if size, ok := msg.(tea.WindowSizeMsg); ok {
+		m.setSize(size.Width, size.Height)
+		return m, nil
+	}
+	if key, ok := msg.(tea.KeyPressMsg); ok && m.conversationVisible() {
+		switch key.String() {
+		case "pgup":
+			m.historyScroll += max(1, m.height/2)
+			return m, nil
+		case "pgdown":
+			m.historyScroll = max(0, m.historyScroll-max(1, m.height/2))
+			return m, nil
+		case "tab":
+			if !m.mentionOpen && m.page == serverChannelMessages {
+				m.page = serverComposeMessage
+				m.composeThreadID = ""
+				m.creatingThread = false
+				return m, m.messageInput.Focus()
+			}
+		}
+	}
+
+	if updated, cmd, handled := m.updateMentions(msg); handled {
+		return updated, cmd
+	}
 	if result, ok := msg.(serverResultMsg); ok {
 		m.busy = false
 		if result.err != nil {
@@ -368,15 +466,32 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 			m.channels, m.page, m.channelSelected = result.channels, serverChannels, 0
 		case listChannelMessages, loadOlderChannelMessages:
 			m.messages, m.nextPageToken, m.page = result.messages, result.nextToken, serverChannelMessages
+			m.historyScroll = 0
 			if result.operation == listChannelMessages {
 				m.messageSelected = 0
+				m.page, m.composeThreadID, m.creatingThread = serverComposeMessage, "", false
+				return m, m.messageInput.Focus()
 			}
+		case listThreads:
+			m.threads, m.threadSelected, m.page = result.threads, 0, serverThreads
+		case loadThread:
+			m.threadMessages, m.page = result.threadMessages, serverComposeMessage
+			m.composeThreadID, m.creatingThread, m.historyScroll = m.threadID, false, 0
+			return m, m.messageInput.Focus()
+		case createThread, replyThread:
+			m.creatingThread = false
+			m.messageInput.Reset()
+			m.threadID, m.page = result.threadID, serverThreadMessages
+			return m, m.request(loadThread, nil)
 		case postChannelMessage, editChannelMessage, deleteChannelMessage:
 			m.messages, m.nextPageToken, m.page = result.messages, result.nextToken, serverChannelMessages
+			m.historyScroll = 0
 			m.messageInput.SetValue("")
 			m.messageSelected = min(m.messageSelected, max(0, len(m.messages)-1))
 			if result.operation == postChannelMessage {
 				m.messageSelected, m.notice = 0, "Message sent."
+				m.page = serverComposeMessage
+				return m, m.messageInput.Focus()
 			} else if result.operation == editChannelMessage {
 				m.notice = "Message updated."
 			} else {
@@ -392,7 +507,12 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 	if isKey && key.String() == "esc" {
 		m.errorText = ""
 		if m.page == serverComposeMessage || m.page == serverEditMessage || m.page == serverDeleteMessageConfirmation {
-			m.page = serverChannelMessages
+			if m.page == serverComposeMessage && m.composeThreadID != "" && !m.creatingThread {
+				m.page = serverThreadMessages
+			} else {
+				m.page = serverChannelMessages
+			}
+			m.composeThreadID, m.creatingThread = "", false
 		} else if m.page == serverCreateChannel || m.page == serverEditChannel || m.page == serverDeleteChannelConfirmation {
 			m.page = serverChannels
 		} else if m.page == serverRemoveConfirmation || m.page == serverPromoteConfirmation {
@@ -407,6 +527,10 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 			m.page = serverDetails
 		} else if m.page == serverChannelMessages {
 			m.page = serverChannels
+		} else if m.page == serverThreads {
+			m.page = serverChannelMessages
+		} else if m.page == serverThreadMessages {
+			m.page = serverThreads
 		} else if m.page == serverJoinConfirmation {
 			m.page = serverJoin
 		} else if m.page == serverEdit || m.page == serverDeleteConfirmation ||
@@ -424,6 +548,14 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 		return updated, cmd
 	}
 	if m.page == serverComposeMessage || m.page == serverEditMessage {
+		if isKey && key.String() == "tab" {
+			m.messageInput.Blur()
+			m.page = serverChannelMessages
+			if m.composeThreadID != "" && !m.creatingThread {
+				m.page = serverThreadMessages
+			}
+			return m, nil
+		}
 		if isKey && key.String() == "enter" {
 			if strings.TrimSpace(m.messageInput.Value()) == "" {
 				m.errorText = "Message content is required."
@@ -432,12 +564,22 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 			operation := postChannelMessage
 			if m.page == serverEditMessage {
 				operation = editChannelMessage
+			} else if m.creatingThread {
+				operation = createThread
+			} else if m.composeThreadID != "" {
+				operation = replyThread
 			}
 			m.busy, m.errorText, m.notice = true, "", ""
 			return m, m.request(operation, nil)
 		}
 		var cmd tea.Cmd
 		m.messageInput, cmd = m.messageInput.Update(msg)
+		if isKey && key.String() == "@" {
+			m.mentionOpen, m.mentionSelected = true, 0
+			m.mentionStart = m.messageInput.Position() - 1
+			m.mentionMembers = nil
+			return m, tea.Batch(cmd, m.loadMentionMembers())
+		}
 		return m, cmd
 	}
 	if m.page == serverCreate || m.page == serverEdit || m.page == serverCreateChannel || m.page == serverEditChannel {
@@ -624,9 +766,21 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 			}
 		case "n":
 			m.messageInput.SetValue("")
+			m.composeThreadID, m.creatingThread = "", false
 			m.notice, m.errorText = "", ""
 			m.page = serverComposeMessage
 			return m, m.messageInput.Focus()
+		case "t":
+			m.busy, m.threads = true, nil
+			return m, m.request(listThreads, nil)
+		case "T":
+			if len(m.messages) > 0 {
+				m.composeThreadID = m.messages[m.messageSelected].GetMessageId()
+				m.creatingThread = true
+				m.messageInput.SetValue("")
+				m.page = serverComposeMessage
+				return m, m.messageInput.Focus()
+			}
 		case "e":
 			if len(m.messages) > 0 && m.messages[m.messageSelected].GetAuthorId() == m.userID {
 				m.messageInput.SetValue(m.messages[m.messageSelected].GetContent())
@@ -649,6 +803,34 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 				return m, m.request(loadOlderChannelMessages, nil)
 			}
 		}
+	case serverThreads:
+		switch key.String() {
+		case "up", "k":
+			if m.threadSelected > 0 {
+				m.threadSelected--
+			}
+		case "down", "j":
+			if m.threadSelected < len(m.threads)-1 {
+				m.threadSelected++
+			}
+		case "enter":
+			if len(m.threads) > 0 {
+				m.threadID = m.threads[m.threadSelected].GetThreadId()
+				m.busy = true
+				return m, m.request(loadThread, nil)
+			}
+		case "r":
+			m.busy = true
+			return m, m.request(listThreads, nil)
+		}
+	case serverThreadMessages:
+		if key.String() == "r" {
+			m.composeThreadID = m.threadID
+			m.creatingThread = false
+			m.messageInput.SetValue("")
+			m.page = serverComposeMessage
+			return m, m.messageInput.Focus()
+		}
 	case serverDeleteMessageConfirmation:
 		switch key.String() {
 		case "y":
@@ -664,8 +846,16 @@ func (m serversModel) Update(msg tea.Msg) (serversModel, tea.Cmd) {
 }
 
 func (m serversModel) View() string {
+	if m.conversationVisible() {
+		return m.conversationView()
+	}
 	var b strings.Builder
-	b.WriteString("Servers\n\n")
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+	divider := strings.Repeat("─", max(1, width-conversationMargin))
+	b.WriteString("Servers\n" + divider + "\n")
 	switch m.page {
 	case serversList:
 		if len(m.items) == 0 && !m.busy {
@@ -679,7 +869,7 @@ func (m serversModel) View() string {
 			}
 			b.WriteString(row.ServerName + "\n")
 		}
-		b.WriteString("\n↑/↓ select · Enter open · n create · c join by code · r refresh · Esc home")
+		b.WriteString(divider + "\n↑/↓ select · Enter open · n create · c join by code · r refresh · Esc home")
 	case serverCreate, serverEdit:
 		if m.page == serverCreate {
 			b.WriteString("Create server\n\n")
@@ -688,11 +878,12 @@ func (m serversModel) View() string {
 		}
 		b.WriteString(m.name.View() + "\n" + m.bio.View() + "\n\nTab switch field · Enter save · Esc cancel")
 	case serverDetails:
-		b.WriteString(m.item.ServerName + "\n\n" + m.item.ServerBio)
+		b.WriteString(m.item.ServerName + "\n" + divider + "\n" + m.item.ServerBio)
+		b.WriteString("\n" + divider + "\n")
 		if m.item.Owner == m.userID {
-			b.WriteString("\n\ne edit · d delete")
+			b.WriteString("e edit · d delete\n")
 		}
-		b.WriteString("\ni invite · m members · o moderators")
+		b.WriteString("i invite · m members · o moderators")
 		b.WriteString(" · c channels")
 		if m.item.Owner != m.userID {
 			b.WriteString(" · l leave")
@@ -701,7 +892,7 @@ func (m serversModel) View() string {
 	case serverDeleteConfirmation:
 		b.WriteString("Delete " + m.item.ServerName + "?\n\ny confirm · n cancel · Esc cancel")
 	case serverChannels:
-		b.WriteString("#" + m.item.ServerName + " channels\n\n")
+		b.WriteString("#" + m.item.ServerName + " channels\n" + divider + "\n")
 		if len(m.channels) == 0 {
 			b.WriteString("No channels yet.\n")
 		}
@@ -713,7 +904,7 @@ func (m serversModel) View() string {
 			}
 			b.WriteString("#" + channel.GetChannelName() + "\n")
 		}
-		b.WriteString("\n↑/↓ select · Enter messages · r refresh")
+		b.WriteString(divider + "\n↑/↓ select · Enter messages · r refresh")
 		if m.item.Owner == m.userID {
 			b.WriteString(" · n create · e rename · d delete")
 		}
@@ -727,49 +918,28 @@ func (m serversModel) View() string {
 		b.WriteString(m.name.View() + "\n\nEnter save · Esc cancel")
 	case serverDeleteChannelConfirmation:
 		b.WriteString("Delete #" + m.channels[m.channelSelected].GetChannelName() + "?\n\ny confirm · n cancel · Esc cancel")
-	case serverChannelMessages:
-		channelName := m.channels[m.channelSelected].GetChannelName()
-		b.WriteString(m.item.GetServerName() + " · #" + channelName + "\n\n")
-		if len(m.messages) == 0 {
-			b.WriteString("No messages yet.\n")
-		}
-		for i, message := range m.messages {
-			if i == m.messageSelected {
-				b.WriteString("> ")
-			} else {
-				b.WriteString("  ")
+	case serverThreads:
+		b.WriteString("Threads in #" + m.channels[m.channelSelected].GetChannelName() + "\n\n")
+		for i, thread := range m.threads {
+			cursor := "  "
+			if i == m.threadSelected {
+				cursor = "> "
 			}
-			author := message.GetAuthorUsername()
-			if author == "" {
-				author = "Unknown user"
-			}
-			b.WriteString(author + ": " + message.GetContent())
-			if message.GetEdited() {
-				b.WriteString(" (edited)")
-			}
-			b.WriteByte('\n')
+			b.WriteString(cursor + thread.GetAuthorName() + ": " + thread.GetContent() + "\n")
 		}
-		b.WriteString("\n↑/↓ select · n send · r refresh")
-		if m.nextPageToken != "" {
-			b.WriteString(" · o older")
+		if len(m.threads) == 0 {
+			b.WriteString("No threads yet. Select a message and press T to start one.\n")
 		}
-		if len(m.messages) > 0 && m.messages[m.messageSelected].GetAuthorId() == m.userID {
-			b.WriteString(" · e edit · d delete")
-		}
-		b.WriteString(" · Esc channels")
-	case serverComposeMessage, serverEditMessage:
-		if m.page == serverComposeMessage {
-			b.WriteString("Send message\n\n")
-		} else {
-			b.WriteString("Edit message\n\n")
-		}
-		b.WriteString(m.messageInput.View() + "\n\nEnter save · Esc cancel")
+		b.WriteString("\n↑/↓ select · Enter open · r refresh · Esc messages")
 	case serverDeleteMessageConfirmation:
 		b.WriteString("Delete this message?\n\ny confirm · n cancel · Esc cancel")
 	case serverMods, serverModDetails, serverPromoteConfirmation, serverDemoteConfirmation:
 		b.WriteString(m.modsView())
 	default:
 		b.WriteString(m.membersView())
+	}
+	if m.mentionOpen {
+		b.WriteString(m.mentionsView())
 	}
 	if m.notice != "" {
 		b.WriteString("\n\n" + m.notice)
