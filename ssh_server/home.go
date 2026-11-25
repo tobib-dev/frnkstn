@@ -160,6 +160,7 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 	case enterNotificationInviteMsg:
 		m.state = homeViewingServers
 		m.servers = newServersModel(m.user.userID, m.session.internalAccessToken, m.grpcPort)
+		m.servers.setSize(m.list.Width(), m.list.Height())
 		m.servers.page = serverJoin
 		m.servers.input.Prompt = "Share code: "
 		m.servers.input.SetValue(msg.shareCode)
@@ -194,6 +195,7 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 	}
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
 		m.list.SetSize(size.Width, size.Height)
+		m.servers.setSize(size.Width, size.Height)
 		if m.state == homeViewingMessages {
 			m.messages.setSize(size.Width, size.Height)
 		}
@@ -343,6 +345,7 @@ func (m homeModel) Update(msg tea.Msg) (homeModel, tea.Cmd) {
 		case serversHomeItem:
 			m.state = homeViewingServers
 			m.servers = newServersModel(m.user.userID, m.session.internalAccessToken, m.grpcPort)
+			m.servers.setSize(m.list.Width(), m.list.Height())
 			return m, m.servers.request(listServers, nil)
 		case messagesHomeItem:
 			m.state = homeViewingMessages
