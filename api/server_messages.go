@@ -248,6 +248,9 @@ func (s *serverService) DeleteMessage(
 }
 
 func (s *serverService) serverMessageError(operation string, err error) error {
+	if errors.Is(err, db.ErrSlowMode) {
+		return status.Error(codes.ResourceExhausted, "Channel slowmode is active. Wait before writing again.")
+	}
 	if errors.Is(err, gocql.ErrNotFound) {
 		return status.Error(codes.NotFound, "message not found")
 	}

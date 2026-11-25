@@ -61,7 +61,7 @@ func (s *serverService) ReplyThread(ctx context.Context, req *serversv1.ReplyThr
 	}
 	item, err := s.threads.ReplyThread(ctx, db.ThreadMessage{ServerID: serverID, ChannelID: channelID, ThreadID: threadID, MessageID: gocql.TimeUUID(), AuthorID: userID, AuthorName: author.Username, Content: content, Tags: tags})
 	if err != nil {
-		return nil, status.Error(codes.Internal, "could not reply to thread")
+		return nil, s.serverMessageError("reply to thread", err)
 	}
 	s.publishThreadTags(ctx, item)
 	return &serversv1.ReplyThreadResponse{Item: serverThreadItem(item)}, nil
@@ -121,7 +121,12 @@ func (s *serverService) GetThreads(ctx context.Context, req *serversv1.GetThread
 	return response, nil
 }
 
-func (s *serverService) createThreadMessage(ctx context.Context, serverIDValue, channelIDValue, originalMessageIDValue, authorIDValue, contentValue string, tagValues []string) (*serversv1.CreateReplyResponse, error) {
+func (s *serverService) createThreadMessage(
+	ctx context.Context, serverIDValue,
+	channelIDValue, originalMessageIDValue,
+	authorIDValue, contentValue string,
+	tagValues []string,
+) (*serversv1.CreateReplyResponse, error) {
 	userID, err := authenticatedUserID(ctx, s.cfg, auth.PermissionWriteMessages)
 	if err != nil {
 		return nil, err

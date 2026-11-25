@@ -11,6 +11,7 @@ import (
 
 	dmsV1 "github.com/tobib-dev/frnkstn-proto/dms/v1"
 	friendsV1 "github.com/tobib-dev/frnkstn-proto/friends/v1"
+	moderationsv1 "github.com/tobib-dev/frnkstn-proto/moderations"
 	ntfnV1 "github.com/tobib-dev/frnkstn-proto/notifications/v1"
 	serverV1 "github.com/tobib-dev/frnkstn-proto/servers/v1"
 	sessionsV1 "github.com/tobib-dev/frnkstn-proto/sessions/v1"
@@ -131,6 +132,7 @@ func main() {
 	dmsV1.RegisterDMServiceServer(server, directMessageService)
 	ntfnV1.RegisterN10NServiceServer(server, notificationService)
 	serverV1.RegisterServerServiceServer(server, serverService)
+	moderationsv1.RegisterModerationServiceServer(server, serverService)
 
 	logger.Info("frnkstn started", "port", cfg.server.port, "environment", "dev")
 	if err := server.Serve(lis); err != nil {

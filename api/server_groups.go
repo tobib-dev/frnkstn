@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gocql/gocql"
+	moderationsv1 "github.com/tobib-dev/frnkstn-proto/moderations"
 	servV1 "github.com/tobib-dev/frnkstn-proto/servers/v1"
 	"github.com/tobib-dev/frnkstn/api/internal/db"
 	"google.golang.org/grpc/codes"
@@ -22,6 +23,7 @@ type serverService struct {
 	channels db.ChannelStore
 	messages db.ChannelMessageStore
 	threads  db.ThreadStore
+	settings db.SettingStore
 	cleanup  interface {
 		UpdateServerLookups(context.Context, gocql.UUID) error
 		MarkServerLookupsDeleted(context.Context, gocql.UUID) error
@@ -31,6 +33,7 @@ type serverService struct {
 	n10n   *notificationService
 	broker durableBroker
 	servV1.UnimplementedServerServiceServer
+	moderationsv1.UnimplementedModerationServiceServer
 }
 
 func NewServerService(cfg *Config, messages db.ChannelMessageStore) *serverService {
@@ -44,6 +47,7 @@ func NewServerService(cfg *Config, messages db.ChannelMessageStore) *serverServi
 		channels: &cfg.db.session,
 		messages: messages,
 		threads:  &cfg.db.session,
+		settings: &cfg.db.session,
 		cleanup:  &cfg.db.session,
 	}
 	if cfg.brokerURI != "" {

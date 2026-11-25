@@ -82,6 +82,9 @@ func (db *DB) CreateReply(
 		AuthorID: ogMsg.AuthorID, AuthorName: originalAuthorName,
 		Content: ogMsg.Content, Edited: ogMsg.Edited, Tags: ogMsg.Tags,
 	}
+	if err := db.enforceSlowMode(ctx, threadMsg.ServerID, threadMsg.ChannelID, threadMsg.AuthorID); err != nil {
+		return ThreadMessage{}, err
+	}
 
 	b := db.Session.ContextBatch(ctx,
 		gocql.LoggedBatch)
@@ -120,6 +123,9 @@ func (db *DB) CreateReply(
 }
 
 func (db *DB) ReplyThread(ctx context.Context, threadMsg ThreadMessage) (ThreadMessage, error) {
+	if err := db.enforceSlowMode(ctx, threadMsg.ServerID, threadMsg.ChannelID, threadMsg.AuthorID); err != nil {
+		return ThreadMessage{}, err
+	}
 	message := ChannelMessage{
 		ServerID: threadMsg.ServerID, ChannelID: threadMsg.ChannelID,
 		MessageID: threadMsg.MessageID, AuthorID: threadMsg.AuthorID,

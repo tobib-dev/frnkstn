@@ -128,6 +128,7 @@ func (s *serverService) EditChannel(
 				codes.InvalidArgument,
 				"channel name is required")
 	}
+
 	channel, err := s.channels.EditChannel(
 		ctx, db.EditChannelParams{
 			ServerID:    serverID,

@@ -75,6 +75,9 @@ func (db *DB) PostChannelMessage(
 	ctx context.Context,
 	msg ChannelMessage,
 ) (ChannelMessageResponse, error) {
+	if err := db.enforceSlowMode(ctx, msg.ServerID, msg.ChannelID, msg.AuthorID); err != nil {
+		return ChannelMessageResponse{}, err
+	}
 	if err := db.Session.Query(
 		channelMsgs.Insert(),
 	).WithContext(ctx).
@@ -177,6 +180,9 @@ func (db *DB) EditChannelMessage(
 	ctx context.Context,
 	args EditChannelMsgParams,
 ) (ChannelMessageResponse, error) {
+	if err := db.enforceSlowMode(ctx, args.ServerID, args.ChannelID, args.AuthorID); err != nil {
+		return ChannelMessageResponse{}, err
+	}
 	applied, err := qb.Update(channelMsgs.Name()).
 		Set("content", "edited", "tags").
 		Where(qb.Eq("server_id"),
